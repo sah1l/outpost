@@ -1,0 +1,19 @@
+{
+  "name": "offsprint-share",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev:app": "pnpm --filter @offsprint/app dev",
+    "dev:usercontent": "pnpm --filter @offsprint/usercontent dev",
+    "build": "pnpm -r build",
+    "lint": "pnpm -r lint",
+    "typecheck": "pnpm -r typecheck"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3"
+  },
+  "packageManager": "pnpm@9.12.0",
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

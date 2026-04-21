@@ -1,0 +1,29 @@
+{
+  "name": "@offsprint/usercontent",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev -p 3001",
+    "build": "next build",
+    "start": "next start -p ${PORT:-8080}",
+    "lint": "next lint",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@google-cloud/storage": "^7.14.0",
+    "@offsprint/shared": "workspace:*",
+    "firebase-admin": "^13.0.1",
+    "marked": "^15.0.3",
+    "next": "^15.1.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.1",
+    "@types/react": "^19.0.1",
+    "@types/react-dom": "^19.0.1",
+    "eslint": "^9.16.0",
+    "eslint-config-next": "^15.1.0",
+    "typescript": "^5.6.3"
+  }
+}
