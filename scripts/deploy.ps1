@@ -1,7 +1,7 @@
 #Requires -Version 7.0
 <#
 .SYNOPSIS
-  Build and deploy share-html (app + usercontent) to Google Cloud Run.
+  Build and deploy Outpost (app + usercontent) to Google Cloud Run.
 
 .DESCRIPTION
   Runs Cloud Build with the infra/cloudbuild.yaml config, then forces both
@@ -28,7 +28,7 @@
   GCS bucket name. Required.
 
 .PARAMETER AppBaseUrl
-  Public URL for the main app (e.g. https://share.example.com). Required.
+  Public URL for the main app (e.g. https://outpost.example.com). Required.
 
 .PARAMETER UsercontentBaseUrl
   Public URL for usercontent (e.g. https://usercontent.example.com). Required.
@@ -39,6 +39,10 @@
 .PARAMETER FirebaseAppId
   NEXT_PUBLIC_FIREBASE_APP_ID value. Required.
 
+.PARAMETER MinimaxModel
+  MiniMax model name for slug generation (e.g. MiniMax-M2). Optional; defaults
+  to MiniMax-M2 if unset. The MINIMAX_API_KEY is read from Secret Manager.
+
 .PARAMETER MaxInstances
   Cloud Run max instance cap. Default: 5.
 
@@ -47,7 +51,7 @@
 
 .EXAMPLE
   ./scripts/deploy.ps1 -ProjectId my-proj -Bucket my-docs `
-    -AppBaseUrl https://share.example.com `
+    -AppBaseUrl https://outpost.example.com `
     -UsercontentBaseUrl https://usercontent.example.com `
     -FirebaseApiKey AIza... -FirebaseAppId 1:123:web:abc
 #>
@@ -64,6 +68,7 @@ param(
   [string]$UsercontentBaseUrl,
   [string]$FirebaseApiKey,
   [string]$FirebaseAppId,
+  [string]$MinimaxModel = "MiniMax-M2",
   [int]$MaxInstances = 5,
   [switch]$SkipBuild
 )
@@ -150,7 +155,8 @@ if (-not $SkipBuild) {
     "_USERCONTENT_BASE_URL=$UsercontentBaseUrl",
     "_GCS_BUCKET=$Bucket",
     "_FIREBASE_API_KEY=$FirebaseApiKey",
-    "_FIREBASE_APP_ID=$FirebaseAppId"
+    "_FIREBASE_APP_ID=$FirebaseAppId",
+    "_MINIMAX_MODEL=$MinimaxModel"
   ) -join ","
 
   gcloud builds submit `

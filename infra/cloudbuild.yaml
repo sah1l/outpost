@@ -5,7 +5,7 @@
 #   _REPO         Artifact Registry repo name, e.g. offsprint
 #   _APP_SERVICE  Cloud Run service name for the main app, e.g. offsprint-app
 #   _USERCONTENT_SERVICE  Cloud Run service name for user content, e.g. offsprint-usercontent
-#   _APP_BASE_URL         e.g. https://share.offsprint.xyz
+#   _APP_BASE_URL         e.g. https://outpost.offsprint.xyz
 #   _USERCONTENT_BASE_URL e.g. https://usercontent.offsprint.xyz
 #   _GCS_BUCKET           e.g. offsprint-docs
 #
@@ -21,7 +21,11 @@ steps:
       - -f
       - apps/app/Dockerfile
       - -t
-      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_APP_SERVICE}:$SHORT_SHA
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_APP_SERVICE}:$BUILD_ID
+      - --build-arg=NEXT_PUBLIC_FIREBASE_API_KEY=${_FIREBASE_API_KEY}
+      - --build-arg=NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=$PROJECT_ID.firebaseapp.com
+      - --build-arg=NEXT_PUBLIC_FIREBASE_PROJECT_ID=$PROJECT_ID
+      - --build-arg=NEXT_PUBLIC_FIREBASE_APP_ID=${_FIREBASE_APP_ID}
       - .
 
   - id: build-usercontent
@@ -31,16 +35,16 @@ steps:
       - -f
       - apps/usercontent/Dockerfile
       - -t
-      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_USERCONTENT_SERVICE}:$SHORT_SHA
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_USERCONTENT_SERVICE}:$BUILD_ID
       - .
 
   - id: push-app
     name: gcr.io/cloud-builders/docker
-    args: ["push", "${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_APP_SERVICE}:$SHORT_SHA"]
+    args: ["push", "${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_APP_SERVICE}:$BUILD_ID"]
 
   - id: push-usercontent
     name: gcr.io/cloud-builders/docker
-    args: ["push", "${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_USERCONTENT_SERVICE}:$SHORT_SHA"]
+    args: ["push", "${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_USERCONTENT_SERVICE}:$BUILD_ID"]
 
   - id: deploy-app
     name: gcr.io/google.com/cloudsdktool/cloud-sdk
@@ -49,17 +53,17 @@ steps:
       - run
       - deploy
       - ${_APP_SERVICE}
-      - --image=${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_APP_SERVICE}:$SHORT_SHA
+      - --image=${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_APP_SERVICE}:$BUILD_ID
       - --region=${_REGION}
       - --platform=managed
       - --allow-unauthenticated
       - --service-account=offsprint-app@$PROJECT_ID.iam.gserviceaccount.com
       - --min-instances=0
-      - --max-instances=5
+      - --max-instances=1
       - --cpu=1
       - --memory=512Mi
-      - --set-env-vars=GCP_PROJECT_ID=$PROJECT_ID,GCS_BUCKET=${_GCS_BUCKET},FIREBASE_PROJECT_ID=$PROJECT_ID,APP_BASE_URL=${_APP_BASE_URL},USERCONTENT_BASE_URL=${_USERCONTENT_BASE_URL},NEXT_PUBLIC_FIREBASE_PROJECT_ID=$PROJECT_ID,NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=$PROJECT_ID.firebaseapp.com,NEXT_PUBLIC_FIREBASE_API_KEY=${_FIREBASE_API_KEY},NEXT_PUBLIC_FIREBASE_APP_ID=${_FIREBASE_APP_ID}
-      - --set-secrets=FIREBASE_CLIENT_EMAIL=FIREBASE_CLIENT_EMAIL:latest,FIREBASE_PRIVATE_KEY=FIREBASE_PRIVATE_KEY:latest
+      - --set-env-vars=GCP_PROJECT_ID=$PROJECT_ID,GCS_BUCKET=${_GCS_BUCKET},FIREBASE_PROJECT_ID=$PROJECT_ID,APP_BASE_URL=${_APP_BASE_URL},USERCONTENT_BASE_URL=${_USERCONTENT_BASE_URL},NEXT_PUBLIC_FIREBASE_PROJECT_ID=$PROJECT_ID,NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=$PROJECT_ID.firebaseapp.com,NEXT_PUBLIC_FIREBASE_API_KEY=${_FIREBASE_API_KEY},NEXT_PUBLIC_FIREBASE_APP_ID=${_FIREBASE_APP_ID},MINIMAX_MODEL=${_MINIMAX_MODEL}
+      - --set-secrets=FIREBASE_CLIENT_EMAIL=FIREBASE_CLIENT_EMAIL:latest,FIREBASE_PRIVATE_KEY=FIREBASE_PRIVATE_KEY:latest,MINIMAX_API_KEY=MINIMAX_API_KEY:latest
 
   - id: deploy-usercontent
     name: gcr.io/google.com/cloudsdktool/cloud-sdk
@@ -68,13 +72,13 @@ steps:
       - run
       - deploy
       - ${_USERCONTENT_SERVICE}
-      - --image=${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_USERCONTENT_SERVICE}:$SHORT_SHA
+      - --image=${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_USERCONTENT_SERVICE}:$BUILD_ID
       - --region=${_REGION}
       - --platform=managed
       - --allow-unauthenticated
       - --service-account=offsprint-usercontent@$PROJECT_ID.iam.gserviceaccount.com
       - --min-instances=0
-      - --max-instances=5
+      - --max-instances=1
       - --cpu=1
       - --memory=512Mi
       - --set-env-vars=GCP_PROJECT_ID=$PROJECT_ID,GCS_BUCKET=${_GCS_BUCKET},FIREBASE_PROJECT_ID=$PROJECT_ID,APP_BASE_URL=${_APP_BASE_URL}

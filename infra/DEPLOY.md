@@ -13,7 +13,7 @@ $REPO = "offsprint"
 $APP_SERVICE = "offsprint-app"
 $USER_SERVICE = "offsprint-usercontent"
 $BUCKET = "offsprint-docs"
-$APP_BASE_URL = "https://share.offsprint.xyz"
+$APP_BASE_URL = "https://outpost.offsprint.xyz"
 $USERCONTENT_BASE_URL = "https://usercontent.offsprint.xyz"
 ```
 
@@ -33,7 +33,7 @@ gcloud services enable `
 ## 2. Firebase + Firestore
 
 1. In the Firebase console, add Firebase to this GCP project.
-2. Enable **Authentication** > **Google** sign-in provider.
+2. Enable **Authentication** sign-in providers — see [Auth providers](#auth-providers) below.
 3. Enable **Firestore** in Native mode (single region matching `$REGION`).
 4. Deploy Firestore rules + indexes:
    ```powershell
@@ -148,12 +148,12 @@ After deploy, Cloud Run prints each service's `run.app` URL. Use these for DNS.
 1. In Cloudflare dashboard, add `offsprint.xyz` as a site (free plan is fine).
 2. Cloudflare gives you two nameservers. In GoDaddy, change the domain's nameservers to the Cloudflare ones. Wait for propagation (~15 min).
 3. In Cloudflare > DNS:
-   - `share` CNAME → `ghs.googlehosted.com` (proxied: **DNS-only** initially, then switch to proxied after verification)
+   - `outpost` CNAME → `ghs.googlehosted.com` (proxied: **DNS-only** initially, then switch to proxied after verification)
    - `usercontent` CNAME → `ghs.googlehosted.com` (same pattern)
 
    Cloudflare proxying to Cloud Run requires **domain mapping** on the Cloud Run side to produce the `ghs.googlehosted.com` target. Run:
    ```powershell
-   gcloud beta run domain-mappings create --service=$APP_SERVICE --domain=share.offsprint.xyz --region=$REGION
+   gcloud beta run domain-mappings create --service=$APP_SERVICE --domain=outpost.offsprint.xyz --region=$REGION
    gcloud beta run domain-mappings create --service=$USER_SERVICE --domain=usercontent.offsprint.xyz --region=$REGION
    ```
    The command prints the required DNS records — use exactly those values in Cloudflare (CNAME target, often `ghs.googlehosted.com`, plus a domain ownership TXT record if prompted).
@@ -164,13 +164,86 @@ After deploy, Cloud Run prints each service's `run.app` URL. Use these for DNS.
 
 ## 8. Post-deploy sanity check
 
-- `https://share.offsprint.xyz` → landing page loads.
+- `https://outpost.offsprint.xyz` → landing page loads.
 - Google sign-in completes, writes `users/{uid}`.
+- Microsoft sign-in completes, writes `users/{uid}` (run only if Microsoft provider is enabled).
 - Upload HTML → finalize succeeds → doc in `docs/{slug}` with `isPublic=false`.
 - Toggle public, visit `/s/{slug}` → 302 to `usercontent.offsprint.xyz/view/{slug}` → content served with CSP headers (inspect with DevTools > Network).
 - Editor at `/editor/{slug}` loads, save button writes back to GCS.
 - Anonymous upload in a fresh private window → returns public link immediately.
 - 6th anon upload from same IP → 429.
+
+## Auth providers
+
+The login page (`/login`) supports **Google** and **Microsoft** sign-in. Both flow through Firebase Authentication on the client, exchange an ID token at `/api/auth/session`, and produce the same session cookie — the server is provider-agnostic, so adding/removing a provider is purely a Firebase Console + Azure config task.
+
+### Google
+
+1. Firebase Console → **Authentication** → **Sign-in method** → enable **Google**.
+2. Set the project's public-facing support email (Firebase requires one for Google).
+3. No additional client/server config needed. The provider works on `localhost` and on any domain listed under **Authentication → Settings → Authorized domains** (Firebase auto-adds your `*.firebaseapp.com` and `*.web.app` domains; add `outpost.offsprint.xyz` and any custom domain you sign in from).
+
+### Microsoft
+
+Microsoft sign-in is OAuth via Azure AD / Microsoft Entra. You need an Azure app registration in addition to enabling the Firebase provider.
+
+**1. Register an app in Azure**
+
+   Azure Portal → **Microsoft Entra ID** → **App registrations** → **New registration**:
+   - Name: `offsprint` (or whatever).
+   - Supported account types: pick based on who should be allowed to sign in
+     - **Single tenant** — only your Azure AD tenant
+     - **Multitenant** — any work/school account
+     - **Multitenant + personal Microsoft accounts** — broadest (corresponds to `common` tenant)
+   - Redirect URI: **Web** → `https://<your-firebase-auth-domain>/__/auth/handler`
+     (e.g. `https://your-project-id.firebaseapp.com/__/auth/handler` — this is the value of `NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN`, **not** your custom share domain).
+
+   After creation, copy the **Application (client) ID** and the **Directory (tenant) ID** from the Overview page.
+
+**2. Create a client secret**
+
+   In the new app: **Certificates & secrets** → **Client secrets** → **New client secret**. Copy the **Value** immediately (it is shown only once).
+
+**3. Enable Microsoft in Firebase**
+
+   Firebase Console → **Authentication** → **Sign-in method** → **Add new provider** → **Microsoft**:
+   - Application ID: paste the Azure client ID.
+   - Application secret: paste the Azure client secret value.
+   - Save. Firebase shows the redirect URI it expects — verify it matches what you registered in Azure.
+
+**4. (Optional) Restrict to a single tenant**
+
+   By default the Microsoft provider accepts whatever the Azure app registration allows. To force the popup to a specific tenant from the client side, set `NEXT_PUBLIC_MICROSOFT_TENANT` in the deployed env:
+
+   - Tenant GUID (e.g. `11111111-2222-3333-4444-555555555555`) — only that org
+   - `organizations` — any work/school account, no personal MSAs
+   - `consumers` — personal Microsoft accounts only
+   - `common` — anything (Firebase default if unset)
+
+   This passes through to Firebase's `OAuthProvider("microsoft.com").setCustomParameters({ tenant })`. It complements the Azure-side restriction; Azure is still the source of truth for what's actually allowed.
+
+**5. Authorized domains**
+
+   Add every domain you sign in from to Firebase Console → **Authentication** → **Settings** → **Authorized domains** (e.g. `localhost`, `outpost.offsprint.xyz`). Firebase rejects the popup callback otherwise.
+
+### Required env vars
+
+| Var                                | Where set | Notes |
+| ---------------------------------- | --------- | ----- |
+| `NEXT_PUBLIC_FIREBASE_API_KEY`     | build-time substitution → Cloud Run env | From Firebase web app config |
+| `NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN` | Cloud Run env (`set-env-vars`) | `<project-id>.firebaseapp.com` |
+| `NEXT_PUBLIC_FIREBASE_PROJECT_ID`  | Cloud Run env | Same as `$PROJECT_ID` |
+| `NEXT_PUBLIC_FIREBASE_APP_ID`      | build-time substitution → Cloud Run env | From Firebase web app config |
+| `NEXT_PUBLIC_MICROSOFT_TENANT`     | Cloud Run env (optional) | Empty = Firebase default; otherwise tenant GUID or `common`/`organizations`/`consumers` |
+
+`NEXT_PUBLIC_*` values are baked into the client bundle at build time. If you change `NEXT_PUBLIC_MICROSOFT_TENANT`, redeploy.
+
+### Troubleshooting
+
+- **`auth/unauthorized-domain`** — domain isn't in Firebase Authorized domains list.
+- **`AADSTS50011: redirect URI mismatch`** — Azure app registration redirect URI doesn't match `https://<auth-domain>/__/auth/handler` exactly. The `auth-domain` is the Firebase one, not your custom domain.
+- **`AADSTS700016: app not found in tenant`** — the user is signing in from a tenant the Azure app registration doesn't allow (single-tenant app + external user, or `NEXT_PUBLIC_MICROSOFT_TENANT` GUID points at the wrong org).
+- **Popup closes immediately with no error** — usually a third-party cookie / cross-origin issue. Confirm `NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN` matches the Firebase project and the popup origin is on the authorized domains list.
 
 ## Known follow-ups
 

@@ -1,0 +1,44 @@
+{
+  "firestore": {
+    "rules": "infra/firestore.rules",
+    "indexes": "infra/firestore.indexes.json"
+  },
+  "hosting": [
+    {
+      "target": "app",
+      "public": "infra/hosting-public",
+      "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
+      "headers": [
+        {
+          "source": "/api/**",
+          "headers": [
+            { "key": "Cache-Control", "value": "private, no-store, max-age=0" }
+          ]
+        }
+      ],
+      "rewrites": [
+        {
+          "source": "**",
+          "run": {
+            "serviceId": "offsprint-app",
+            "region": "asia-south1"
+          }
+        }
+      ]
+    },
+    {
+      "target": "usercontent",
+      "public": "infra/hosting-public",
+      "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
+      "rewrites": [
+        {
+          "source": "**",
+          "run": {
+            "serviceId": "offsprint-usercontent",
+            "region": "asia-south1"
+          }
+        }
+      ]
+    }
+  ]
+}

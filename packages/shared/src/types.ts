@@ -42,3 +42,49 @@ export interface FinalizeUploadRequest {
   slug: string;
   type: DocType;
 }
+
+// ---------- CLI / device-flow auth ----------
+
+export interface CliDeviceStartResponse {
+  deviceCode: string;
+  userCode: string;
+  verificationUrl: string;
+  verificationUrlComplete: string;
+  expiresIn: number;
+  interval: number;
+}
+
+export type CliDeviceTokenError =
+  | "authorization_pending"
+  | "slow_down"
+  | "expired_token"
+  | "denied"
+  | "invalid_request";
+
+export interface CliDeviceTokenSuccess {
+  accessToken: string;
+  tokenType: "Bearer";
+  user: { uid: string; email: string };
+}
+
+export interface CliDeviceTokenErrorResponse {
+  error: CliDeviceTokenError;
+}
+
+// ---------- CLI upload (text or file) ----------
+
+export type CliUploadFormat = "html" | "md";
+
+export interface CliUploadTextRequest {
+  text: string;
+  format: CliUploadFormat;
+  title?: string;
+  isPublic?: boolean;
+}
+
+export interface CliUploadResponse {
+  slug: string;
+  url: string;
+  title: string;
+  type: DocType;
+}

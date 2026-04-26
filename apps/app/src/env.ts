@@ -26,8 +26,11 @@ export const env = {
     appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID ?? "",
   },
 
+  publicMicrosoftTenant: process.env.NEXT_PUBLIC_MICROSOFT_TENANT ?? "",
+
   usercontentBaseUrl: () => required("USERCONTENT_BASE_URL"),
   appBaseUrl: () => required("APP_BASE_URL"),
+  appBaseUrlNoTrailingSlash: () => required("APP_BASE_URL").replace(/\/$/, ""),
 
   minimaxApiKey: () => process.env.MINIMAX_API_KEY || "",
   minimaxModel: () => process.env.MINIMAX_MODEL || "MiniMax-M2",

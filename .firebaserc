@@ -1,0 +1,18 @@
+{
+  "projects": {
+    "default": "share-html-ed153"
+  },
+  "targets": {
+    "share-html-ed153": {
+      "hosting": {
+        "app": [
+          "share-html-ed153"
+        ],
+        "usercontent": [
+          "offsprint-usercontent"
+        ]
+      }
+    }
+  },
+  "etags": {}
+}

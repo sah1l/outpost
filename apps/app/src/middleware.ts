@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { SESSION_COOKIE_NAME } from "@offsprint/shared";
 
 export const config = {
-  matcher: ["/dashboard/:path*", "/editor/:path*"],
+  matcher: ["/dashboard/:path*", "/editor/:path*", "/cli/:path*"],
 };
 
 export function middleware(req: NextRequest) {

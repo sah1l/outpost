@@ -41,5 +41,15 @@ export async function POST(req: Request) {
     path: "/",
   });
 
-  return NextResponse.json({ ok: true });
+  return NextResponse.json(
+    { ok: true },
+    {
+      headers: {
+        // Belt-and-suspenders: Fastly fronts Firebase Hosting and may strip
+        // Set-Cookie on cacheable responses. Force private/no-store so the CDN
+        // passes the cookie through untouched.
+        "cache-control": "private, no-store, max-age=0",
+      },
+    },
+  );
 }

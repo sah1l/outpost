@@ -36,7 +36,7 @@ export default async function LoginPage({
           <div className="reveal reveal-2 smallcaps mb-3 flex items-center justify-center gap-3 sm:justify-start">
             <span>Enter</span>
             <span className="h-px w-8 bg-[var(--ink)]" />
-            <span>Google only</span>
+            <span>Google or Microsoft</span>
           </div>
 
           <h1 className="reveal reveal-3 font-display text-6xl font-light leading-[0.95] tracking-tight text-[var(--ink)]">
@@ -47,8 +47,8 @@ export default async function LoginPage({
             <span className="font-mono text-[13px] text-[var(--ink)]">
               share-html
             </span>{" "}
-            uses Google for authentication. No password, no profile — we keep a
-            record of your email and storage usage only.
+            uses Google or Microsoft for authentication. No password, no
+            profile — we keep a record of your email and storage usage only.
           </p>
 
           <div className="reveal reveal-4 mt-8 flex justify-center sm:justify-start">

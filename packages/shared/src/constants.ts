@@ -17,5 +17,8 @@ export const ALLOWED_ZIP_EXTENSIONS = new Set([
 
 export const SLUG_LENGTH = 10;
 
-export const SESSION_COOKIE_NAME = "offsprint_session";
+// Firebase Hosting only forwards cookies named exactly "__session" through
+// its CDN rewrites to Cloud Run. Any other cookie is silently stripped both
+// from Set-Cookie responses and from subsequent Cookie headers.
+export const SESSION_COOKIE_NAME = "__session";
 export const ANON_SESSION_COOKIE_NAME = "offsprint_anon";

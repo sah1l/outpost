@@ -1,0 +1,29 @@
+{
+  "name": "@offsprint/outpost",
+  "version": "0.1.1",
+  "description": "Outpost — CLI for publishing HTML and Markdown documents from your terminal or AI agent",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "outpost": "dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "start": "node ./dist/cli.js",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@offsprint/shared": "workspace:*",
+    "@types/node": "^22.10.1",
+    "tsup": "^8.3.5",
+    "typescript": "^5.6.3"
+  }
+}
