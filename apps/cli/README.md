@@ -69,7 +69,7 @@ A drop-in [Agent Skill](https://agentskills.io/specification) lives at
 install it is the GitHub CLI (`gh` 2.90+):
 
 ```sh
-gh skill install sah1l/share-html outpost
+gh skill install sah1l/outpost outpost
 ```
 
 This auto-detects your agent host (Claude Code, Copilot CLI, Cursor, Codex,

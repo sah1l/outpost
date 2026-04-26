@@ -16,7 +16,7 @@ tooling.
 The fastest path is the GitHub CLI (`gh` 2.90+):
 
 ```sh
-gh skill install sah1l/share-html outpost
+gh skill install sah1l/outpost outpost
 ```
 
 `gh skill` auto-detects your agent host and writes the skill into the right

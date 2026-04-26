@@ -5,7 +5,7 @@ license: MIT
 compatibility: Requires Node.js 18+ and network access. The `outpost` CLI is published on npm as `@offsprint/outpost`; if not installed globally, invoke via `npx @offsprint/outpost`.
 metadata:
   homepage: https://outpost.offsprint.xyz
-  repository: https://github.com/sah1l/share-html
+  repository: https://github.com/sah1l/outpost
   package: "@offsprint/outpost"
 allowed-tools: Bash
 ---

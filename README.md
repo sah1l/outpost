@@ -1,4 +1,4 @@
-# Offsprint Share
+# Outpost
 
 Share HTML and Markdown publicly. Next.js on Cloud Run, GCS for files, Firestore for metadata.
 
@@ -35,7 +35,7 @@ CLI and return a shareable URL.
 With `gh` 2.90+:
 
 ```sh
-gh skill install sah1l/share-html outpost
+gh skill install sah1l/outpost outpost
 ```
 
 For manual install (or other agent hosts), see [`skills/README.md`](./skills/README.md).
