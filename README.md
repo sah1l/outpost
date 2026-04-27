@@ -39,3 +39,50 @@ gh skill install sah1l/outpost outpost
 ```
 
 For manual install (or other agent hosts), see [`skills/README.md`](./skills/README.md).
+
+## Using Outpost in your AI coding agent (e.g. Claude Code)
+
+Once set up, you can ask your agent to share a local `.html` or `.md` file and
+get back a public link without leaving the chat.
+
+1. **Update `gh` to the latest version.** Skill install from public repos
+   landed in `gh` 2.90+. If you installed via Chocolatey:
+
+   ```powershell
+   choco upgrade gh
+   ```
+
+   Otherwise, follow the upgrade path for your installer (Homebrew, winget,
+   the GitHub release, etc.).
+
+2. **Install the Outpost skill:**
+
+   ```sh
+   gh skill install sah1l/outpost outpost
+   ```
+
+3. **Log in once to get a CLI token** (used by the skill to upload on your
+   behalf):
+
+   ```sh
+   npx @offsprint/outpost login
+   ```
+
+   This opens a browser window for device-flow auth and stores the token
+   locally.
+
+4. **Ask your agent to share a doc.** In your Claude Code (or other agent)
+   session, prompt something like:
+
+   > share `xyz.md` as md and give me a public link
+
+   or
+
+   > share `report.html` as html and give me a public link
+
+   Make sure to ask for a **public link** — otherwise the agent will only
+   upload the file and you'll have to flip it to public manually from the
+   dashboard. If the agent doesn't pick up on the first try, mention
+   "**share to outpost**" explicitly:
+
+   > share this to outpost as md and give me a public link
