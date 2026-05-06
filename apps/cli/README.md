@@ -62,6 +62,45 @@ echo "<p>quick</p>" | outpost upload --format html
 - `1` — runtime error (network, auth expired, server rejection)
 - `2` — bad invocation (missing args, missing required flag)
 
+## Update an existing document
+
+Replace the contents (and optionally the title or visibility) of a document
+you already own. The slug stays the same — the URL doesn't change.
+
+```sh
+# Replace contents from a file (must match the existing doc's type)
+outpost update sprint-notes ./sprint-notes.md
+outpost update https://outpost.offsprint.xyz/s/sprint-notes ./notes.md
+
+# Replace contents inline
+outpost update sprint-notes --text "# Updated notes" --format md
+
+# From stdin
+cat sprint-notes.md | outpost update sprint-notes - --format md
+
+# Metadata only (no body change)
+outpost update sprint-notes --title "Sprint 42 notes"
+outpost update sprint-notes --public
+outpost update sprint-notes --no-public
+```
+
+You can pass either the slug (`sprint-notes`) or the full share URL.
+
+### Update flags
+
+| Flag                | Description                                                       |
+| ------------------- | ----------------------------------------------------------------- |
+| `--text "..."`      | Replace contents with this string. Use instead of a file path.    |
+| `--format html\|md` | Required for stdin uploads; validated against the doc's type.     |
+| `--title "..."`     | Replace the title.                                                |
+| `--public`          | Make the document public.                                         |
+| `--no-public`       | Make the document private.                                        |
+| `--json`            | Print the result as JSON.                                         |
+
+Omit both `--public` and `--no-public` to leave visibility unchanged. The
+existing doc's type (`html` or `md`) is fixed — to change formats, delete and
+re-upload.
+
 ## Use from an AI agent
 
 A drop-in [Agent Skill](https://agentskills.io/specification) lives at
@@ -164,7 +203,13 @@ node apps/cli/dist/cli.js upload --text "<h1>hi</h1>" --format html
 # 5. Upload from stdin
 Get-Content .\test.md | node apps/cli/dist/cli.js upload - --format md
 
-# 6. Sign out (deletes ./.cli-dev/auth.json)
+# 6. Update an existing doc (use a slug from a prior upload)
+"# updated" | Out-File -Encoding utf8 .\test.md
+node apps/cli/dist/cli.js update <slug> .\test.md
+node apps/cli/dist/cli.js update <slug> --text "# inline update" --format md
+node apps/cli/dist/cli.js update <slug> --title "renamed" --public
+
+# 7. Sign out (deletes ./.cli-dev/auth.json)
 node apps/cli/dist/cli.js logout
 ```
 

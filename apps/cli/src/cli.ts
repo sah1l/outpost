@@ -1,10 +1,11 @@
 import { parseArgs } from "./args.js";
 import { loginCommand } from "./commands/login.js";
 import { logoutCommand } from "./commands/logout.js";
+import { updateCommand } from "./commands/update.js";
 import { uploadCommand } from "./commands/upload.js";
 import { whoamiCommand } from "./commands/whoami.js";
 
-const VERSION = "0.1.1";
+const VERSION = "0.2.0";
 
 const HELP = `outpost ${VERSION}
 
@@ -16,8 +17,9 @@ Commands:
   logout       Remove the saved access token
   whoami       Show the currently signed-in user
   upload       Upload an HTML or Markdown document
+  update       Replace the contents of an existing document
 
-Run \`outpost upload --help\` for upload options.
+Run \`outpost upload --help\` or \`outpost update --help\` for command options.
 `;
 
 async function main(): Promise<number> {
@@ -43,6 +45,8 @@ async function main(): Promise<number> {
       return whoamiCommand();
     case "upload":
       return uploadCommand(rest);
+    case "update":
+      return updateCommand(rest);
     default:
       process.stderr.write(`Unknown command: ${cmd}\n\n${HELP}`);
       return 2;

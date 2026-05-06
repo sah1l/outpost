@@ -3,6 +3,7 @@ import { basename, extname } from "node:path";
 import type { CliUploadFormat } from "@offsprint/shared";
 import { uploadFile, uploadText } from "../api.js";
 import { flagBool, flagString, type ParsedArgs } from "../args.js";
+import { printResult } from "./_print.js";
 
 const USAGE = `Usage:
   outpost upload <file>            Upload a .html or .md file
@@ -99,11 +100,3 @@ export async function uploadCommand(args: ParsedArgs): Promise<number> {
   return 0;
 }
 
-function printResult(result: { slug: string; url: string; title: string }, asJson: boolean): void {
-  if (asJson) {
-    process.stdout.write(JSON.stringify(result) + "\n");
-    return;
-  }
-  process.stdout.write(`\n  Uploaded "${result.title}"\n`);
-  process.stdout.write(`  ${result.url}\n\n`);
-}
