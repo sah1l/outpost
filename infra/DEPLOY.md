@@ -143,6 +143,98 @@ gcloud builds submit --config infra/cloudbuild.yaml `
 
 After deploy, Cloud Run prints each service's `run.app` URL. Use these for DNS.
 
+## 6a. (Optional) CI/CD via GitHub Actions
+
+Three workflows live in `.github/workflows/`:
+
+| File | Trigger | Purpose |
+| ---- | ------- | ------- |
+| `ci.yml` | PR to `master` and push to `master` | `pnpm install --frozen-lockfile && pnpm typecheck && pnpm lint && pnpm build` — gates merges. |
+| `deploy-infra.yml` | push to `master`, paths-filtered to `apps/app/**`, `apps/usercontent/**`, `packages/shared/**`, `infra/cloudbuild.yaml`, `pnpm-lock.yaml` | Authenticates to GCP via Workload Identity Federation and runs `gcloud builds submit --config infra/cloudbuild.yaml`. Cloud Build does the actual Docker builds and Cloud Run deploys. |
+| `publish-cli.yml` | push to `master`, paths-filtered to `apps/cli/**`, `packages/shared/**`, `pnpm-lock.yaml` | Builds `@offsprint/outpost` and publishes to npm — but **only if `apps/cli/package.json#version` is not already on the registry**. Bump the version in the same PR you want released. |
+
+Both deploy workflows use `concurrency.cancel-in-progress: false` so back-to-back merges queue rather than race or get cancelled.
+
+### Workload Identity Federation (one-time GCP setup)
+
+Avoids long-lived JSON SA keys in GitHub. Replace `<github-org>/<repo>` and `$PROJECT_NUMBER` (`gcloud projects describe $PROJECT_ID --format='value(projectNumber)'`).
+
+```powershell
+# Create deployer SA used by GitHub Actions
+gcloud iam service-accounts create cicd-deployer --display-name="GitHub Actions deployer"
+$DEPLOYER = "cicd-deployer@$PROJECT_ID.iam.gserviceaccount.com"
+
+foreach ($role in @(
+  "roles/cloudbuild.builds.editor",
+  "roles/run.admin",
+  "roles/iam.serviceAccountUser",
+  "roles/artifactregistry.writer",
+  "roles/storage.admin",
+  "roles/secretmanager.secretAccessor",
+  "roles/logging.viewer"
+)) {
+  gcloud projects add-iam-policy-binding $PROJECT_ID `
+    --member="serviceAccount:$DEPLOYER" --role=$role
+}
+
+# Workload Identity Pool + provider
+gcloud iam workload-identity-pools create github `
+  --location=global --display-name="GitHub Actions"
+gcloud iam workload-identity-pools providers create-oidc github-actions `
+  --location=global --workload-identity-pool=github `
+  --display-name="GitHub Actions OIDC" `
+  --issuer-uri="https://token.actions.githubusercontent.com" `
+  --attribute-mapping="google.subject=assertion.sub,attribute.repository=assertion.repository,attribute.ref=assertion.ref" `
+  --attribute-condition="assertion.repository == '<github-org>/<repo>'"
+
+# Allow this repo's master branch to impersonate the deployer SA
+gcloud iam service-accounts add-iam-policy-binding $DEPLOYER `
+  --role=roles/iam.workloadIdentityUser `
+  --member="principalSet://iam.googleapis.com/projects/$PROJECT_NUMBER/locations/global/workloadIdentityPools/github/attribute.repository/<github-org>/<repo>"
+```
+
+Then grab the provider's full resource name:
+
+```powershell
+gcloud iam workload-identity-pools providers describe github-actions `
+  --location=global --workload-identity-pool=github --format="value(name)"
+# → projects/$PROJECT_NUMBER/locations/global/workloadIdentityPools/github/providers/github-actions
+```
+
+### GitHub repo configuration
+
+In **Settings → Secrets and variables → Actions**, add:
+
+**Variables** (not secrets — values are non-sensitive build config; `NEXT_PUBLIC_*` ends up in the client bundle anyway):
+
+| Variable | Example |
+| -------- | ------- |
+| `GCP_PROJECT_ID` | `your-gcp-project-id` |
+| `GCP_REGION` | `us-central1` |
+| `GCP_REPO` | `offsprint` |
+| `GCP_WIF_PROVIDER` | `projects/123456/locations/global/workloadIdentityPools/github/providers/github-actions` |
+| `GCP_DEPLOY_SA` | `cicd-deployer@your-gcp-project-id.iam.gserviceaccount.com` |
+| `APP_SERVICE` | `offsprint-app` |
+| `USERCONTENT_SERVICE` | `offsprint-usercontent` |
+| `APP_BASE_URL` | `https://outpost.offsprint.xyz` |
+| `USERCONTENT_BASE_URL` | `https://usercontent.offsprint.xyz` |
+| `GCS_BUCKET` | `offsprint-docs` |
+| `FIREBASE_API_KEY` | from Firebase web app config |
+| `FIREBASE_APP_ID` | from Firebase web app config |
+| `MINIMAX_MODEL` | `MiniMax-M2` |
+
+**Secrets**:
+
+| Secret | Notes |
+| ------ | ----- |
+| `NPM_TOKEN` | npm automation token with publish access to `@offsprint/outpost`. Used as `NODE_AUTH_TOKEN` by `actions/setup-node`. |
+
+Firebase Admin / MiniMax credentials stay in GCP Secret Manager (read by Cloud Run at runtime); they never need to enter GitHub.
+
+### Branch protection
+
+Recommended on `master`: require `verify` (the CI job) to pass before merge, require linear history, and disallow direct pushes. `deploy-infra` and `publish-cli` then only run on reviewed merges.
+
 ## 7. DNS via Cloudflare (domain at GoDaddy)
 
 1. In Cloudflare dashboard, add `offsprint.xyz` as a site (free plan is fine).

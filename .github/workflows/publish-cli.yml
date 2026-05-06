@@ -1,0 +1,56 @@
+name: Publish CLI
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - apps/cli/**
+      - packages/shared/**
+      - pnpm-lock.yaml
+      - .github/workflows/publish-cli.yml
+
+concurrency:
+  group: publish-cli
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.12.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+          registry-url: https://registry.npmjs.org
+
+      - id: check-version
+        name: Check whether this version is already on npm
+        run: |
+          NAME=$(jq -r .name apps/cli/package.json)
+          VERSION=$(jq -r .version apps/cli/package.json)
+          echo "Inspecting $NAME@$VERSION on npm"
+          if npm view "$NAME@$VERSION" version >/dev/null 2>&1; then
+            echo "Already published — skipping."
+            echo "should-publish=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "Not yet published — will publish."
+            echo "should-publish=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - if: steps.check-version.outputs.should-publish == 'true'
+        run: pnpm install --frozen-lockfile
+
+      - if: steps.check-version.outputs.should-publish == 'true'
+        run: pnpm --filter @offsprint/outpost build
+
+      - if: steps.check-version.outputs.should-publish == 'true'
+        name: Publish to npm
+        run: pnpm --filter @offsprint/outpost publish --access public --no-git-checks
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
