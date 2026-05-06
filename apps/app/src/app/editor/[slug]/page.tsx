@@ -40,7 +40,7 @@ export default async function EditorPage({ params }: { params: Promise<{ slug: s
             Not editable.
           </h1>
           <p className="mt-4 text-[14px] leading-relaxed text-[var(--ink-2)]">
-            ZIP uploads are served as a site — they can't be edited inline.
+            ZIP uploads are served as a site — they can&apos;t be edited inline.
             Re-upload the changed files if you need to update them.
           </p>
           <Link href="/dashboard" className="btn-ghost mt-8">
