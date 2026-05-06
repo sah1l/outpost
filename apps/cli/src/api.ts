@@ -55,6 +55,17 @@ export interface UploadOptions {
   isPublic?: boolean;
 }
 
+export interface UpdateOptions {
+  title?: string;
+  isPublic?: boolean | undefined;
+}
+
+export function resolveSlug(input: string): string {
+  const trimmed = input.trim().replace(/\/+$/, "");
+  const match = /\/s\/([^/?#]+)/.exec(trimmed);
+  return (match ? match[1]! : trimmed).trim();
+}
+
 async function authedHeaders(extra: Record<string, string> = {}): Promise<Record<string, string>> {
   const auth = await readAuth();
   if (!auth) throw new Error("Not authenticated. Run `outpost login` first.");
@@ -107,6 +118,62 @@ function uploadErrorMessage(status: number, body: unknown): string {
   if (status === 401) return "Not authenticated (token may have expired). Run `outpost login` again.";
   if (status === 413) return "File too large.";
   return err ? `Upload failed: ${err}` : `Upload failed: HTTP ${status}`;
+}
+
+function updateErrorMessage(status: number, body: unknown): string {
+  const err = (body as { error?: string } | null)?.error;
+  if (status === 401) return "Not authenticated (token may have expired). Run `outpost login` again.";
+  if (status === 403) return "You don't own this document.";
+  if (status === 404) return "Document not found. Use `outpost upload` to create a new one.";
+  if (status === 413) return "File too large.";
+  return err ? `Update failed: ${err}` : `Update failed: HTTP ${status}`;
+}
+
+export async function updateText(
+  slugOrUrl: string,
+  text: string | undefined,
+  format: CliUploadFormat | undefined,
+  opts: UpdateOptions = {},
+): Promise<CliUploadResponse> {
+  const headers = await authedHeaders({ "content-type": "application/json" });
+  const payload: Record<string, unknown> = { slug: resolveSlug(slugOrUrl) };
+  if (text !== undefined) payload.text = text;
+  if (format) payload.format = format;
+  if (opts.title !== undefined) payload.title = opts.title;
+  if (opts.isPublic !== undefined) payload.isPublic = opts.isPublic;
+  const res = await fetch(`${getApiBase()}/api/cli/update`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify(payload),
+  });
+  const body = await parseJson(res);
+  if (!res.ok) throw new ApiError(res.status, updateErrorMessage(res.status, body), body);
+  return body as CliUploadResponse;
+}
+
+export async function updateFile(
+  slugOrUrl: string,
+  filename: string,
+  buffer: Buffer,
+  contentType: string,
+  opts: UpdateOptions = {},
+): Promise<CliUploadResponse> {
+  const headers = await authedHeaders();
+  const form = new FormData();
+  form.append("slug", resolveSlug(slugOrUrl));
+  const view = new Uint8Array(buffer.byteLength);
+  view.set(buffer);
+  form.append("file", new Blob([view], { type: contentType }), filename);
+  if (opts.title !== undefined) form.append("title", opts.title);
+  if (opts.isPublic !== undefined) form.append("isPublic", opts.isPublic ? "true" : "false");
+  const res = await fetch(`${getApiBase()}/api/cli/update`, {
+    method: "POST",
+    headers,
+    body: form,
+  });
+  const body = await parseJson(res);
+  if (!res.ok) throw new ApiError(res.status, updateErrorMessage(res.status, body), body);
+  return body as CliUploadResponse;
 }
 
 export async function whoami(): Promise<{ uid: string; email: string; tokenExpiresAt: number } | null> {

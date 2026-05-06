@@ -88,3 +88,11 @@ export interface CliUploadResponse {
   title: string;
   type: DocType;
 }
+
+export interface CliUpdateTextRequest {
+  slug: string;
+  text?: string;
+  format?: CliUploadFormat;
+  title?: string;
+  isPublic?: boolean;
+}

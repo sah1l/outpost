@@ -1,0 +1,29 @@
+steps:
+  - id: build-usercontent
+    name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - -f
+      - apps/usercontent/Dockerfile
+      - -t
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_USERCONTENT_SERVICE}:$BUILD_ID
+      - .
+
+  - id: push-usercontent
+    name: gcr.io/cloud-builders/docker
+    args: ["push", "${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_USERCONTENT_SERVICE}:$BUILD_ID"]
+
+  - id: deploy-usercontent
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk
+    entrypoint: gcloud
+    args:
+      - run
+      - deploy
+      - ${_USERCONTENT_SERVICE}
+      - --image=${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_USERCONTENT_SERVICE}:$BUILD_ID
+      - --region=${_REGION}
+      - --platform=managed
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+  machineType: E2_HIGHCPU_8
