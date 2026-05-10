@@ -32,8 +32,17 @@ Use it when the user says things like:
 conversation. If the user asks you to first write a document and then share it,
 save the document locally with their confirmation first, then use this skill.
 
-For **updates**, only act when the user supplies the slug or URL of a doc they
-already own — never guess slugs from conversational context.
+For **updates**, you may use a slug from one of three sources:
+
+1. The user supplied it on this turn (a slug or share URL).
+2. You read it from a `<!-- outpost-slug: ... -->` marker in the file (see
+   [Tracking the slug for later updates](#tracking-the-slug-for-later-updates)).
+3. You produced it yourself earlier in this session via `outpost upload` or
+   `outpost update --json` and the user is plainly referring to that doc
+   (e.g. "update what we just shared", "fix the typo in the upload").
+
+Never invent a slug from passing mentions in chat or from documents the user
+hasn't committed to — only the three sources above are authoritative.
 
 ## Prerequisites
 
@@ -131,9 +140,37 @@ of stdout reliably.
 
 ## Tracking the slug for later updates
 
-To make later `update` calls painless, record the slug in the source file
-itself as an HTML comment. HTML comments render invisibly in both `.html`
-and `.md` (Markdown passes them through), so this is safe for both formats.
+You have two ways to remember a slug across turns: an **on-disk marker** for
+files (durable across sessions) and **in-session memory** for inline uploads
+or until you write the marker.
+
+### In-session memory of slugs you produced
+
+Any slug returned by your own `outpost upload` or `outpost update --json`
+call in this conversation is authoritative — reuse it for later turns in
+the same session without re-asking the user. This is not "guessing from
+conversational context"; it's a result you just received from the CLI.
+
+This is especially important for **inline-text uploads** (`--text` /
+stdin), where there is no local file to attach a marker to. If the user
+says "tweak that and re-share it" after an inline upload, run
+`outpost update <slug-you-just-got> ...` directly.
+
+When you do an inline upload that the user is likely to revisit, mention
+the trade-off once: *"Since this isn't backed by a local file, the slug
+will only stick around for this session — save the URL if you'll need it
+later."* That gives them a chance to capture it for future sessions.
+
+If the user says something like "update that doc" or "the previous one"
+and there are multiple candidate slugs from earlier in the session, ask
+which one rather than guessing.
+
+### On-disk marker (for files)
+
+To make later `update` calls painless across sessions, record the slug in
+the source file itself as an HTML comment. HTML comments render invisibly
+in both `.html` and `.md` (Markdown passes them through), so this is safe
+for both formats.
 
 **Marker format** — must be on its own line, ideally at the top of the file:
 
@@ -141,7 +178,7 @@ and `.md` (Markdown passes them through), so this is safe for both formats.
 <!-- outpost-slug: <slug> -->
 ```
 
-### When to write the marker
+#### When to write the marker
 
 Write or update the marker any time you have authoritative slug information
 for a local file:
@@ -162,7 +199,7 @@ for a local file:
 
 Always confirm before editing the user's file. Don't add the marker silently.
 
-### When to read the marker
+#### When to read the marker
 
 When the user asks to update *this file* without giving a slug, look at the
 top of the file for the marker. If you find one, use that slug — but
@@ -174,7 +211,7 @@ from someone else, restored from a backup, or if the doc was deleted on the
 server. If `outpost update` returns 403 or 404, the marker is stale —
 remove or correct it after talking to the user.
 
-### When NOT to use the marker
+#### When NOT to use the marker
 
 - If the user explicitly passes a slug/URL on this turn, prefer what they
   said over the marker.
