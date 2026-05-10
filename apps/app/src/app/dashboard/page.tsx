@@ -60,7 +60,13 @@ export default async function DashboardPage() {
         breadcrumb={<Breadcrumb items={[{ label: "dashboard" }]} />}
         actions={
           <>
-            <Link href="/upload" className="btn-accent">
+            <Link href="/editor/new?type=md" className="btn-accent">
+              + New · MD
+            </Link>
+            <Link href="/editor/new?type=html" className="btn-ghost">
+              + New · HTML
+            </Link>
+            <Link href="/upload" className="btn-ghost">
               + Upload
             </Link>
             <LogoutButton />
@@ -145,11 +151,19 @@ function EmptyState() {
         Nothing shared yet.
       </p>
       <p className="mt-2 text-[14px] text-[var(--ink-3)]">
-        Upload your first file. It&apos;ll appear here.
+        Start a new draft in the editor, or upload an existing file.
       </p>
-      <Link href="/upload" className="btn-accent mt-6">
-        + Upload
-      </Link>
+      <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
+        <Link href="/editor/new?type=md" className="btn-accent">
+          + New · MD
+        </Link>
+        <Link href="/editor/new?type=html" className="btn-ghost">
+          + New · HTML
+        </Link>
+        <Link href="/upload" className="btn-ghost">
+          + Upload
+        </Link>
+      </div>
     </div>
   );
 }

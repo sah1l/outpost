@@ -65,6 +65,7 @@ export default async function EditorPage({ params }: { params: Promise<{ slug: s
         }
       />
       <EditorShell
+        mode="edit"
         slug={doc.slug}
         docType={doc.type}
         title={doc.title}
