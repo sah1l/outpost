@@ -6,7 +6,7 @@
     "dev": "next dev -p 3000",
     "build": "next build",
     "start": "next start -p ${PORT:-8080}",
-    "lint": "next lint",
+    "lint": "eslint .",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
@@ -31,6 +31,7 @@
     "@types/react": "^19.0.1",
     "@types/react-dom": "^19.0.1",
     "@types/yauzl": "^2.10.3",
+    "@eslint/eslintrc": "^3.2.0",
     "autoprefixer": "^10.4.20",
     "eslint": "^9.16.0",
     "eslint-config-next": "^15.1.0",

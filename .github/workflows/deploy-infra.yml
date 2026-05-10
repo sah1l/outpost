@@ -1,0 +1,40 @@
+name: Deploy infra
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - apps/app/**
+      - apps/usercontent/**
+      - packages/shared/**
+      - infra/cloudbuild.yaml
+      - pnpm-lock.yaml
+      - .github/workflows/deploy-infra.yml
+
+concurrency:
+  group: deploy-infra
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SA }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Submit Cloud Build
+        run: |
+          gcloud builds submit \
+            --config infra/cloudbuild.yaml \
+            --project "${{ vars.GCP_PROJECT_ID }}" \
+            --substitutions="_REGION=${{ vars.GCP_REGION }},_REPO=${{ vars.GCP_REPO }},_APP_SERVICE=${{ vars.APP_SERVICE }},_USERCONTENT_SERVICE=${{ vars.USERCONTENT_SERVICE }},_APP_BASE_URL=${{ vars.APP_BASE_URL }},_USERCONTENT_BASE_URL=${{ vars.USERCONTENT_BASE_URL }},_GCS_BUCKET=${{ vars.GCS_BUCKET }},_FIREBASE_API_KEY=${{ vars.FIREBASE_API_KEY }},_FIREBASE_APP_ID=${{ vars.FIREBASE_APP_ID }},_MINIMAX_MODEL=${{ vars.MINIMAX_MODEL }}"
