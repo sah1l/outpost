@@ -9,6 +9,7 @@ import { env } from "@/env";
 import { requireCliUser, cliAuthErrorResponse } from "@/lib/cli-auth";
 import { bucket } from "@/lib/gcs";
 import { getDoc, updateDoc, incrementUserStorage } from "@/lib/docs";
+import { resolveSlug } from "@/lib/slug";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -25,12 +26,6 @@ class HttpError extends Error {
   constructor(public status: number, message: string) {
     super(message);
   }
-}
-
-function resolveSlug(input: string): string {
-  const trimmed = input.trim().replace(/\/+$/, "");
-  const match = /\/s\/([^/?#]+)/.exec(trimmed);
-  return (match ? match[1]! : trimmed).trim();
 }
 
 function detectFormatFromFilename(name: string): CliUploadFormat | null {

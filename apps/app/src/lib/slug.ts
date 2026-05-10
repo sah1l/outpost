@@ -12,6 +12,17 @@ const shortSuffix = customAlphabet(suffixAlphabet, 4);
 const MAX_SLUG_LENGTH = 40;
 const MIN_SLUG_LENGTH = 3;
 
+/**
+ * Accept either a bare slug or a full /s/{slug} URL (with or without
+ * trailing slash, query, or fragment) and return the slug. Mirrored in
+ * apps/cli/src/api.ts because the CLI is a separate published package.
+ */
+export function resolveSlug(input: string): string {
+  const trimmed = input.trim().replace(/\/+$/, "");
+  const match = /\/s\/([^/?#]+)/.exec(trimmed);
+  return (match ? match[1]! : trimmed).trim();
+}
+
 export async function allocateSlug(maxAttempts = 5): Promise<string> {
   const docs = adminFirestore().collection("docs");
   for (let i = 0; i < maxAttempts; i++) {

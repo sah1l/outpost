@@ -1,6 +1,6 @@
 ---
 name: outpost
-description: Upload or update an existing HTML or Markdown document on outpost.offsprint.xyz via the `outpost` CLI and return a shareable URL. Use when the user asks to "share", "publish", "upload", "post", "update", "replace", or "edit" a local .html / .md file, or when they ask for a link to a document they already have. Do NOT generate new documents to upload — only share what the user already has on disk or in the conversation.
+description: Upload, update, or delete an HTML or Markdown document on outpost.offsprint.xyz via the `outpost` CLI and return a shareable URL. Use when the user asks to "share", "publish", "upload", "post", "update", "replace", "edit", "delete", "remove", or "unshare" a local .html / .md file, or when they ask for a link to a document they already have. Do NOT generate new documents to upload — only share what the user already has on disk or in the conversation.
 license: MIT
 compatibility: Requires Node.js 18+ and network access. The `outpost` CLI is published on npm as `@offsprint/outpost`; if not installed globally, invoke via `npx @offsprint/outpost`.
 metadata:
@@ -27,6 +27,7 @@ Use it when the user says things like:
 - "update the doc I just shared"
 - "replace the contents of <outpost URL>"
 - "edit my published notes"
+- "delete that share" / "unshare this" / "remove my notes from outpost"
 
 **Do not** invoke this skill to publish content you generated in the
 conversation. If the user asks you to first write a document and then share it,
@@ -133,10 +134,40 @@ Common update failures: `403` (the user doesn't own that doc), `404` (slug
 doesn't exist — suggest `outpost upload` to create a new one), `400 format
 mismatch` (file extension doesn't match the existing doc's type).
 
+### Deleting a document
+
+Use `delete` only when the user explicitly asks to delete, remove, or
+unshare a document. Do **not** infer delete from edit-shaped requests like
+"remove this paragraph" — that's an `update`.
+
+```bash
+outpost delete <slug-or-url> --yes        # skip the y/N confirmation
+outpost delete <slug-or-url> -y --json    # short flag + machine output
+```
+
+Always pass `--yes` (or `-y`) when invoking from a skill — agents have no
+TTY, and the CLI refuses non-interactive deletes without explicit
+confirmation. Without the flag and without a TTY the command exits 2 with a
+hint.
+
+Delete is permanent and the slug becomes available for reuse. Once you've
+run a successful `outpost delete` for a slug, drop that slug from your
+in-session memory — a follow-up `update` against it will 404, and a future
+`upload` from another user could land on the same slug with different
+content.
+
+If the file had an `<!-- outpost-slug: ... -->` marker, offer to remove it
+after a successful delete so a stale marker doesn't mislead a future
+update.
+
+Common delete failures: `403` (the user doesn't own that doc) — surface
+the error verbatim. A missing slug returns success (the operation is
+idempotent), so don't treat that as an error.
+
 ### Machine-readable output
 
-Append `--json` to get `{slug, url, title, type}` so the URL can be parsed out
-of stdout reliably.
+Append `--json` to get `{slug, url, title, type}` (upload/update) or
+`{slug, ok}` (delete) so results can be parsed out of stdout reliably.
 
 ## Tracking the slug for later updates
 
