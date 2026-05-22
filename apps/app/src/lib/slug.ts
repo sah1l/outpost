@@ -11,6 +11,11 @@ const shortSuffix = customAlphabet(suffixAlphabet, 4);
 
 const MAX_SLUG_LENGTH = 40;
 const MIN_SLUG_LENGTH = 3;
+// Cap the source we feed to the HTML/MD stripper. The output sample is far
+// smaller, so anything past this is wasted work on multi-MB uploads.
+const MAX_SOURCE_CHARS = 64 * 1024;
+const MAX_SAMPLE_CHARS = 5000;
+const MAX_HEADINGS = 5;
 
 /**
  * Accept either a bare slug or a full /s/{slug} URL (with or without
@@ -48,11 +53,49 @@ function sanitizeSlug(raw: string): string | null {
   return cleaned;
 }
 
-/** Picks up to `maxChars` of representative text from HTML/MD source. */
 function sampleContent(source: string): string {
-  const noScripts = source.replace(/<script[\s\S]*?<\/script>/gi, " ").replace(/<style[\s\S]*?<\/style>/gi, " ");
+  const head = source.slice(0, MAX_SOURCE_CHARS);
+  const titleMatch = /<title[^>]*>([\s\S]*?)<\/title>/i.exec(head);
+  const htmlHeadings = Array.from(head.matchAll(/<h[1-3][^>]*>([\s\S]*?)<\/h[1-3]>/gi))
+    .slice(0, MAX_HEADINGS)
+    .map((m) => m[1]!);
+  const mdHeadings = Array.from(head.matchAll(/^#{1,3}\s+(.+)$/gm))
+    .slice(0, MAX_HEADINGS)
+    .map((m) => m[1]!);
+  const structural = [titleMatch?.[1], ...htmlHeadings, ...mdHeadings]
+    .filter((s): s is string => Boolean(s))
+    .map((s) => s.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim())
+    .filter(Boolean);
+
+  const noScripts = head.replace(/<script[\s\S]*?<\/script>/gi, " ").replace(/<style[\s\S]*?<\/style>/gi, " ");
   const stripped = noScripts.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
-  return stripped.slice(0, 1200);
+
+  const headings = structural.length ? "Headings: " + structural.join(" / ") + "\n\n" : "";
+  return (headings + stripped).slice(0, MAX_SAMPLE_CHARS);
+}
+
+// Words pulled straight from the prompt — if the model echoes the instruction
+// instead of reading the doc, the resulting "slug" lands here. Keep this in
+// sync with the prompt below.
+const INSTRUCTION_LEAK_WORDS = new Set([
+  "slug",
+  "slugs",
+  "output",
+  "single",
+  "line",
+  "lowercase",
+  "hyphen",
+  "hyphens",
+  "explanation",
+  "rules",
+  "instruction",
+  "instructions",
+]);
+
+function looksLikeInstructionLeak(slug: string): boolean {
+  let hits = 0;
+  for (const w of slug.split("-")) if (INSTRUCTION_LEAK_WORDS.has(w)) hits++;
+  return hits >= 2;
 }
 
 /**
@@ -78,13 +121,35 @@ export async function allocateContentAwareSlug(opts: {
     return allocateSlug();
   }
 
-  const prompt =
-    "Suggest a short URL slug for the document below. " +
-    "Use 2-4 lowercase words joined by single hyphens. " +
-    "Only letters, digits, and hyphens. No punctuation, no quotes, no explanation. " +
-    "Output the slug on a single line, nothing else.\n\n" +
-    context;
-  const raw = await minimaxChat(prompt, 256);
+  const prompt = `You generate short, human-readable URL slugs for shared documents.
+
+Rules:
+- 2-4 lowercase words joined by single hyphens.
+- Only letters, digits, and hyphens. No quotes, no punctuation, no explanation.
+- Pick words describing what the document is ABOUT (its topic), not generic filler like "document", "page", "untitled", "readme", "draft", "notes", or "test".
+- Prefer concrete nouns from the title and headings over verbs from body copy.
+- Skip stop words ("the", "a", "and", "of", "for") and dates/versions unless essential to the topic.
+- If the document is empty, unreadable, or you cannot determine a topic, output exactly: UNKNOWN
+- Output ONLY the slug on a single line. Nothing else.
+
+Examples:
+Title: "Q3 Marketing Launch Plan"
+Slug: q3-marketing-launch
+
+Title: "How React Server Actions Work"
+Slug: react-server-actions
+
+Title: "Untitled" — body discusses a chess opening trap called the Englund Gambit
+Slug: englund-gambit-trap
+
+Title: "" — body is a postmortem of a Stripe webhook outage
+Slug: stripe-webhook-postmortem
+
+Document (between the markers):
+<<<DOC
+${context}
+DOC>>>`;
+  const raw = await minimaxChat(prompt, 1024);
   if (!raw) {
     console.warn("[slug] minimax returned null — falling back to random");
     return allocateSlug();
@@ -92,14 +157,21 @@ export async function allocateContentAwareSlug(opts: {
   // Reasoning models may emit thinking before the final answer. Try the last
   // non-empty line first, then fall back to the first.
   const lines = raw.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
-  const candidates = [lines[lines.length - 1] ?? "", lines[0] ?? ""];
+  const candidates = Array.from(new Set([lines[lines.length - 1] ?? "", lines[0] ?? ""]));
+  if (candidates.some((c) => c.toUpperCase() === "UNKNOWN")) {
+    console.warn("[slug] minimax returned UNKNOWN — falling back to random");
+    return allocateSlug();
+  }
   let base: string | null = null;
   for (const c of candidates) {
     const cleaned = sanitizeSlug(c);
-    if (cleaned) {
-      base = cleaned;
-      break;
+    if (!cleaned) continue;
+    if (looksLikeInstructionLeak(cleaned)) {
+      console.warn(`[slug] rejecting instruction-leak candidate "${cleaned}"`);
+      continue;
     }
+    base = cleaned;
+    break;
   }
   if (!base) {
     console.warn(`[slug] sanitize rejected minimax output ${JSON.stringify(raw.slice(0, 200))} — falling back`);
