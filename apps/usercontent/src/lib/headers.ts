@@ -1,4 +1,16 @@
+import type { DocRecord } from "@offsprint/shared";
 import { env } from "@/env";
+
+// Browsers revalidate on every request (max-age=0, must-revalidate); shared
+// caches (e.g. Cloudflare edge) hold the response for s-maxage seconds. With
+// the ETag below, revalidations are cheap conditional GETs that return 304.
+const VIEW_CACHE_CONTROL = "public, max-age=0, s-maxage=60, must-revalidate";
+
+// Never cache misses — a 404 from a private/missing doc must not pin clients
+// to the missing state after the doc is flipped back to public.
+export const NOT_FOUND_CACHE_HEADERS: Record<string, string> = {
+  "Cache-Control": "no-store",
+};
 
 export function securityHeaders(extra: Record<string, string> = {}): Record<string, string> {
   const appOrigin = env.appBaseUrl();
@@ -10,6 +22,22 @@ export function securityHeaders(extra: Record<string, string> = {}): Record<stri
     "Referrer-Policy": "no-referrer",
     "X-Frame-Options": "SAMEORIGIN",
     ...extra,
+  };
+}
+
+// Weak ETag keyed on the parts of the doc that change what we serve. updatedAt
+// changes on every write through updateDoc (including isPublic flips), so any
+// state change invalidates caches. subpath is included for zip asset routes
+// where the same (slug, updatedAt) covers many distinct files.
+export function computeETag(doc: DocRecord, subpath = ""): string {
+  const sub = subpath ? `-${subpath}` : "";
+  return `W/"${doc.slug}-${doc.updatedAt}-${doc.isPublic ? 1 : 0}${sub}"`;
+}
+
+export function viewCacheHeaders(etag: string): Record<string, string> {
+  return {
+    "Cache-Control": VIEW_CACHE_CONTROL,
+    ETag: etag,
   };
 }
 
