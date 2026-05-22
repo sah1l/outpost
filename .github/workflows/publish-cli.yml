@@ -30,7 +30,6 @@ jobs:
         with:
           node-version: 20
           cache: pnpm
-          registry-url: https://registry.npmjs.org
 
       - id: check-version
         name: Check whether this version is already on npm
