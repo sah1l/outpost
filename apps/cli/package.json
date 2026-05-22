@@ -3,6 +3,11 @@
   "version": "0.3.0",
   "description": "Outpost — CLI for publishing HTML and Markdown documents from your terminal or AI agent",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sah1l/outpost.git",
+    "directory": "apps/cli"
+  },
   "type": "module",
   "bin": {
     "outpost": "dist/cli.js"
