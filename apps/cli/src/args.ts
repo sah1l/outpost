@@ -9,6 +9,7 @@ export interface ParsedArgs {
  *  --key=value      → flags.key = "value"
  *  --flag           → flags.flag = true
  *  --no-flag        → flags.flag = false
+ *  -x               → flags.x = true   (single-letter short flag)
  *  -                → positional "-"  (used to mean stdin)
  *  Anything else    → positional[]
  */
@@ -39,6 +40,10 @@ export function parseArgs(argv: string[]): ParsedArgs {
       } else {
         flags[key] = true;
       }
+      continue;
+    }
+    if (/^-[a-zA-Z]$/.test(a)) {
+      flags[a.slice(1)] = true;
       continue;
     }
     positional.push(a);

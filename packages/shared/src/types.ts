@@ -96,3 +96,14 @@ export interface CliUpdateTextRequest {
   title?: string;
   isPublic?: boolean;
 }
+
+// ---------- CLI delete ----------
+
+export interface CliDeleteRequest {
+  slug: string;
+}
+
+export interface CliDeleteResponse {
+  slug: string;
+  ok: true;
+}

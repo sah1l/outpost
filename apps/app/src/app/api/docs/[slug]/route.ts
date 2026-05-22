@@ -1,6 +1,12 @@
 import { NextResponse } from "next/server";
 import { requireUser, AuthError } from "@/lib/auth";
-import { getDoc, deleteDoc, updateDoc, gcsPrefixFor } from "@/lib/docs";
+import {
+  getDoc,
+  deleteDoc,
+  updateDoc,
+  gcsPrefixFor,
+  incrementUserStorage,
+} from "@/lib/docs";
 
 export const runtime = "nodejs";
 
@@ -68,5 +74,8 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ slug
   }
   const prefix = gcsPrefixFor(slug, doc.ownerId);
   await deleteDoc(slug, prefix);
+  if (doc.ownerId && doc.sizeBytes > 0) {
+    await incrementUserStorage(doc.ownerId, -doc.sizeBytes);
+  }
   return NextResponse.json({ ok: true });
 }

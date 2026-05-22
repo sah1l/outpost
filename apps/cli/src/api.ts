@@ -1,4 +1,5 @@
 import type {
+  CliDeleteResponse,
   CliDeviceStartResponse,
   CliDeviceTokenError,
   CliDeviceTokenSuccess,
@@ -174,6 +175,25 @@ export async function updateFile(
   const body = await parseJson(res);
   if (!res.ok) throw new ApiError(res.status, updateErrorMessage(res.status, body), body);
   return body as CliUploadResponse;
+}
+
+function deleteErrorMessage(status: number, body: unknown): string {
+  const err = (body as { error?: string } | null)?.error;
+  if (status === 401) return "Not authenticated (token may have expired). Run `outpost login` again.";
+  if (status === 403) return "You don't own this document.";
+  return err ? `Delete failed: ${err}` : `Delete failed: HTTP ${status}`;
+}
+
+export async function deleteDoc(slugOrUrl: string): Promise<CliDeleteResponse> {
+  const headers = await authedHeaders({ "content-type": "application/json" });
+  const res = await fetch(`${getApiBase()}/api/cli/delete`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ slug: resolveSlug(slugOrUrl) }),
+  });
+  const body = await parseJson(res);
+  if (!res.ok) throw new ApiError(res.status, deleteErrorMessage(res.status, body), body);
+  return body as CliDeleteResponse;
 }
 
 export async function whoami(): Promise<{ uid: string; email: string; tokenExpiresAt: number } | null> {

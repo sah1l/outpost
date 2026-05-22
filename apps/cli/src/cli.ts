@@ -1,11 +1,12 @@
 import { parseArgs } from "./args.js";
+import { deleteCommand } from "./commands/delete.js";
 import { loginCommand } from "./commands/login.js";
 import { logoutCommand } from "./commands/logout.js";
 import { updateCommand } from "./commands/update.js";
 import { uploadCommand } from "./commands/upload.js";
 import { whoamiCommand } from "./commands/whoami.js";
 
-const VERSION = "0.2.0";
+const VERSION = "0.3.0";
 
 const HELP = `outpost ${VERSION}
 
@@ -18,8 +19,9 @@ Commands:
   whoami       Show the currently signed-in user
   upload       Upload an HTML or Markdown document
   update       Replace the contents of an existing document
+  delete       Delete a document you own
 
-Run \`outpost upload --help\` or \`outpost update --help\` for command options.
+Run \`outpost <command> --help\` for per-command options.
 `;
 
 async function main(): Promise<number> {
@@ -47,6 +49,8 @@ async function main(): Promise<number> {
       return uploadCommand(rest);
     case "update":
       return updateCommand(rest);
+    case "delete":
+      return deleteCommand(rest);
     default:
       process.stderr.write(`Unknown command: ${cmd}\n\n${HELP}`);
       return 2;
