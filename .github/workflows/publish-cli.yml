@@ -53,5 +53,10 @@ jobs:
         run: pnpm --filter @offsprint/outpost build
 
       - if: steps.check-version.outputs.should-publish == 'true'
+        name: Upgrade npm (Trusted Publishing requires npm >= 11.5.1)
+        run: npm install -g npm@latest
+
+      - if: steps.check-version.outputs.should-publish == 'true'
         name: Publish to npm
-        run: pnpm --filter @offsprint/outpost publish --access public --no-git-checks --provenance
+        working-directory: apps/cli
+        run: npm publish --access public --provenance
