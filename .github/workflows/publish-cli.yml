@@ -16,6 +16,9 @@ concurrency:
 jobs:
   publish:
     runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
     steps:
       - uses: actions/checkout@v4
 
@@ -51,6 +54,4 @@ jobs:
 
       - if: steps.check-version.outputs.should-publish == 'true'
         name: Publish to npm
-        run: pnpm --filter @offsprint/outpost publish --access public --no-git-checks
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: pnpm --filter @offsprint/outpost publish --access public --no-git-checks --provenance
