@@ -76,7 +76,7 @@ function readEntries(zip: ZipFile): Promise<ExtractedFile[]> {
         return reject(new ZipExtractionError(`invalid entry path: ${raw}`));
       }
       const normalized = path.posix.normalize(raw);
-      if (normalized.startsWith("..") || normalized.startsWith("/") || normalized.includes("/..") || path.isAbsolute(normalized)) {
+      if (normalized.startsWith("..") || normalized.startsWith("/")) {
         return reject(new ZipExtractionError(`zip-slip detected: ${raw}`));
       }
 

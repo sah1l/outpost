@@ -1,6 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { DocType } from "@offsprint/shared";
 import { marked } from "marked";
@@ -20,34 +21,46 @@ const CodeMirrorEditor = dynamic(
 type SaveState = "clean" | "dirty" | "saving" | "saved" | "error";
 type ViewMode = "split" | "source" | "preview";
 
-export function EditorShell({
-  slug,
-  docType,
-  title,
-  initialIsPublic,
-}: {
-  slug: string;
-  docType: DocType;
-  title: string;
-  initialIsPublic: boolean;
-}) {
+export type EditorShellProps =
+  | {
+      mode: "edit";
+      slug: string;
+      docType: DocType;
+      title: string;
+      initialIsPublic: boolean;
+    }
+  | {
+      mode: "draft";
+      docType: DocType;
+    };
+
+export function EditorShell(props: EditorShellProps) {
+  const router = useRouter();
+  const { docType } = props;
+  const isDraft = props.mode === "draft";
+
   const [source, setSource] = useState<string>("");
-  const [loaded, setLoaded] = useState(false);
+  const [loaded, setLoaded] = useState(isDraft);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [saveState, setSaveState] = useState<SaveState>("clean");
   const [saveError, setSaveError] = useState<string | null>(null);
-  const [isPublic, setIsPublic] = useState(initialIsPublic);
+  const [title, setTitle] = useState<string>(props.mode === "edit" ? props.title : "Untitled");
+  const [isPublic, setIsPublic] = useState(props.mode === "edit" ? props.initialIsPublic : false);
   const [pubBusy, setPubBusy] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [view, setView] = useState<ViewMode>("split");
   const [origin, setOrigin] = useState("");
   const lastSavedRef = useRef<string>("");
+  const navigatingRef = useRef(false);
 
   useEffect(() => {
     setOrigin(window.location.origin);
   }, []);
 
+  const slug = props.mode === "edit" ? props.slug : null;
+
   useEffect(() => {
+    if (!slug) return;
     let cancelled = false;
     (async () => {
       try {
@@ -69,29 +82,43 @@ export function EditorShell({
   }, [slug]);
 
   const save = useCallback(async () => {
-    if (source === lastSavedRef.current) {
+    if (slug && source === lastSavedRef.current) {
       setSaveState("clean");
       return;
     }
     setSaveState("saving");
     setSaveError(null);
     try {
-      const res = await fetch(`/api/docs/${slug}/content`, {
-        method: "PUT",
-        headers: { "content-type": "text/plain; charset=utf-8" },
-        body: source,
-      });
-      if (!res.ok) throw new Error(`save failed: ${res.status}`);
-      lastSavedRef.current = source;
-      setSaveState("saved");
-      setTimeout(() => {
-        setSaveState((s) => (s === "saved" ? "clean" : s));
-      }, 1500);
+      if (slug) {
+        const res = await fetch(`/api/docs/${slug}/content`, {
+          method: "PUT",
+          headers: { "content-type": "text/plain; charset=utf-8" },
+          body: source,
+        });
+        if (!res.ok) throw new Error(`save failed: ${res.status}`);
+        lastSavedRef.current = source;
+        setSaveState("saved");
+        setTimeout(() => {
+          setSaveState((s) => (s === "saved" ? "clean" : s));
+        }, 1500);
+      } else {
+        const res = await fetch(`/api/docs/create`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ type: docType, title, content: source }),
+        });
+        if (!res.ok) throw new Error(`create failed: ${res.status}`);
+        const { slug: newSlug } = (await res.json()) as { slug: string };
+        lastSavedRef.current = source;
+        navigatingRef.current = true;
+        setSaveState("saved");
+        router.replace(`/editor/${newSlug}`);
+      }
     } catch (e) {
       setSaveState("error");
       setSaveError(e instanceof Error ? e.message : "save failed");
     }
-  }, [slug, source]);
+  }, [slug, source, docType, title, router]);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -104,12 +131,37 @@ export function EditorShell({
     return () => window.removeEventListener("keydown", onKey);
   }, [save]);
 
+  // Warn before discarding an unsaved draft.
+  useEffect(() => {
+    if (!isDraft) return;
+    function onBeforeUnload(e: BeforeUnloadEvent) {
+      if (navigatingRef.current) return;
+      if (!source.trim()) return;
+      e.preventDefault();
+      e.returnValue = "";
+    }
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, [isDraft, source]);
+
   function onChange(next: string) {
     setSource(next);
-    setSaveState(next === lastSavedRef.current ? "clean" : "dirty");
+    if (slug) {
+      setSaveState(next === lastSavedRef.current ? "clean" : "dirty");
+    } else {
+      setSaveState(next.trim() ? "dirty" : "clean");
+    }
+  }
+
+  function onBlurSave() {
+    // In draft mode, don't materialize a doc just because the user tabbed
+    // out of an empty editor — wait for explicit Save or non-empty content.
+    if (isDraft && !source.trim()) return;
+    void save();
   }
 
   async function togglePublic() {
+    if (!slug) return;
     const next = !isPublic;
     setPubBusy(true);
     const prev = isPublic;
@@ -131,7 +183,7 @@ export function EditorShell({
   }
 
   async function copyLink() {
-    if (!isPublic) {
+    if (!slug || !isPublic) {
       showToast("Make it public first");
       return;
     }
@@ -161,7 +213,9 @@ export function EditorShell({
     );
   }
 
-  const shareUrl = `${origin}/s/${slug}`;
+  const shareUrl = slug ? `${origin}/s/${slug}` : "";
+  const saveDisabled =
+    saveState === "saving" || (slug ? saveState === "clean" : !source.trim() && title.trim() === "Untitled");
 
   return (
     <>
@@ -174,9 +228,20 @@ export function EditorShell({
             >
               {docType}
             </span>
-            <h1 className="truncate font-display text-xl text-[var(--ink)]">
-              {title}
-            </h1>
+            {isDraft ? (
+              <input
+                type="text"
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                placeholder="Untitled"
+                aria-label="Title"
+                className="min-w-0 flex-1 truncate border-b border-transparent bg-transparent font-display text-xl text-[var(--ink)] outline-none focus:border-[var(--ink)]/40"
+              />
+            ) : (
+              <h1 className="truncate font-display text-xl text-[var(--ink)]">
+                {title}
+              </h1>
+            )}
           </div>
 
           <div className="hidden h-5 w-px bg-[var(--ink)]/25 md:block" />
@@ -184,20 +249,26 @@ export function EditorShell({
           <div className="flex items-center gap-2 font-mono text-[11px] text-[var(--ink-3)]">
             <span className="smallcaps">URL</span>
             <span className="max-w-[220px] truncate text-[var(--ink)]">
-              /s/{slug}
+              {slug ? `/s/${slug}` : "— unsaved draft —"}
             </span>
           </div>
 
           <div className="ml-auto flex flex-wrap items-center gap-3">
-            <SaveIndicator state={saveState} error={saveError} />
+            <SaveIndicator state={saveState} error={saveError} isDraft={isDraft} />
 
             <ViewTabs value={view} onChange={setView} />
 
             <button
               onClick={copyLink}
-              disabled={!isPublic}
+              disabled={!slug || !isPublic}
               className="btn-ghost"
-              title={isPublic ? "Copy share link" : "Make public to share"}
+              title={
+                !slug
+                  ? "Save first to share"
+                  : isPublic
+                    ? "Copy share link"
+                    : "Make public to share"
+              }
             >
               <span className="smallcaps" style={{ color: "inherit" }}>
                 Copy link
@@ -206,7 +277,13 @@ export function EditorShell({
 
             <div
               className="flex items-center gap-2 border border-[var(--ink)] bg-[var(--paper)] px-2.5 py-1.5"
-              title={isPublic ? shareUrl : "Private — only you can see this"}
+              title={
+                !slug
+                  ? "Save first to share"
+                  : isPublic
+                    ? shareUrl
+                    : "Private — only you can see this"
+              }
             >
               <span
                 className={`smallcaps ${isPublic ? "text-[var(--accent)]" : "text-[var(--ink-3)]"}`}
@@ -218,7 +295,7 @@ export function EditorShell({
                 role="switch"
                 aria-checked={isPublic}
                 onClick={togglePublic}
-                disabled={pubBusy}
+                disabled={!slug || pubBusy}
                 className="pub-switch"
                 data-on={isPublic}
               />
@@ -226,10 +303,10 @@ export function EditorShell({
 
             <button
               onClick={() => void save()}
-              disabled={saveState === "saving" || saveState === "clean"}
+              disabled={saveDisabled}
               className="btn-accent"
             >
-              {saveState === "saving" ? "Saving…" : "Save"}
+              {saveState === "saving" ? "Saving…" : isDraft ? "Save & publish" : "Save"}
             </button>
           </div>
         </div>
@@ -245,7 +322,7 @@ export function EditorShell({
         {view !== "preview" && (
           <div
             className={`relative min-h-0 ${view === "split" ? "border-b border-[var(--ink)]/30 md:border-b-0 md:border-r" : ""}`}
-            onBlur={() => void save()}
+            onBlur={onBlurSave}
           >
             <PaneLabel label={`Source · ${docType}`} />
             {loaded ? (
@@ -325,9 +402,16 @@ function PaneLabel({
   );
 }
 
-function SaveIndicator({ state, error }: { state: SaveState; error: string | null }) {
-  const base =
-    "flex items-center gap-1.5 smallcaps tabular-nums";
+function SaveIndicator({
+  state,
+  error,
+  isDraft,
+}: {
+  state: SaveState;
+  error: string | null;
+  isDraft: boolean;
+}) {
+  const base = "flex items-center gap-1.5 smallcaps tabular-nums";
   if (state === "error")
     return (
       <span className={base} style={{ color: "var(--red)" }}>
@@ -339,7 +423,7 @@ function SaveIndicator({ state, error }: { state: SaveState; error: string | nul
     return (
       <span className={base} style={{ color: "var(--ink-3)" }}>
         <span className="h-1.5 w-1.5 rounded-full bg-[var(--ink-3)] animate-pulse" />
-        Saving
+        {isDraft ? "Publishing" : "Saving"}
       </span>
     );
   if (state === "saved")
@@ -359,7 +443,7 @@ function SaveIndicator({ state, error }: { state: SaveState; error: string | nul
   return (
     <span className={base} style={{ color: "var(--ink-4)" }}>
       <span className="h-1.5 w-1.5 rounded-full bg-[var(--ink-4)]" />
-      Up to date
+      {isDraft ? "New draft" : "Up to date"}
     </span>
   );
 }
