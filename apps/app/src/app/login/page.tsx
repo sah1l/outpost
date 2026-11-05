@@ -1,9 +1,13 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { MAX_UPLOAD_BYTES_ANON } from "@offsprint/shared";
 import { getSessionUser } from "@/lib/auth";
-import { SiteHeader, PageShell } from "@/components/chrome/site-header";
-import { LogoMark } from "@/components/brand/logo";
+import { safeNextPath } from "@/lib/safe-next";
+import { Wordmark } from "@/components/brand/logo";
 import { LoginButton } from "./login-button";
+
+export const metadata: Metadata = { title: "Sign in" };
 
 export default async function LoginPage({
   searchParams,
@@ -11,64 +15,36 @@ export default async function LoginPage({
   searchParams: Promise<{ next?: string }>;
 }) {
   const user = await getSessionUser();
-  const { next } = await searchParams;
-  if (user) redirect(next || "/dashboard");
+  const next = safeNextPath((await searchParams).next);
+  if (user) redirect(next);
 
   return (
-    <>
-      <SiteHeader
-        actions={
-          <Link href="/" className="btn-ghost">
-            Back
+    <main className="flex min-h-dvh items-center justify-center bg-canvas p-4">
+      <div className="w-full max-w-sm">
+        <div className="flex justify-center">
+          <Link href="/" aria-label="Outpost home" className="rounded-control">
+            <Wordmark size="lg" />
           </Link>
-        }
-      />
-      <PageShell width="default">
-        <div className="mx-auto max-w-lg text-center sm:text-left">
-          <div className="reveal reveal-1 mb-8 flex justify-center sm:justify-start">
-            <div className="relative">
-              <LogoMark size={88} />
-              <span className="absolute -right-3 -top-3 h-3 w-3 border border-[var(--ink)] bg-[var(--paper)]" />
-              <span className="absolute -bottom-3 -left-3 h-3 w-3 border border-[var(--ink)] bg-[var(--paper)]" />
-            </div>
-          </div>
-
-          <div className="reveal reveal-2 smallcaps mb-3 flex items-center justify-center gap-3 sm:justify-start">
-            <span>Enter</span>
-            <span className="h-px w-8 bg-[var(--ink)]" />
-            <span>Google or Microsoft</span>
-          </div>
-
-          <h1 className="reveal reveal-3 font-display text-6xl font-light leading-[0.95] tracking-tight text-[var(--ink)]">
-            Welcome back.
-          </h1>
-
-          <p className="reveal reveal-3 mt-5 text-[15px] leading-relaxed text-[var(--ink-2)]">
-            <span className="font-mono text-[13px] text-[var(--ink)]">
-              share-html
-            </span>{" "}
-            uses Google or Microsoft for authentication. No password, no
-            profile — we keep a record of your email and storage usage only.
-          </p>
-
-          <div className="reveal reveal-4 mt-8 flex justify-center sm:justify-start">
-            <LoginButton redirectTo={next || "/dashboard"} />
-          </div>
-
-          <div className="rule-dashed mt-12" />
-
-          <p className="reveal reveal-5 mt-6 text-[13px] text-[var(--ink-3)]">
-            Don&apos;t want to sign in?{" "}
-            <Link
-              href="/upload"
-              className="text-[var(--accent)] underline underline-offset-4"
-            >
-              Upload anonymously
-            </Link>{" "}
-            — 2 MB, kept 14 days.
-          </p>
         </div>
-      </PageShell>
-    </>
+        <div className="mt-6 rounded-panel border border-line bg-surface p-6">
+          <h1 className="text-center text-[18px] font-semibold tracking-[-0.01em] text-ink">
+            Sign in to Outpost
+          </h1>
+          <p className="mt-1 text-center text-[13px] text-ink-2">
+            Use an account you already have.
+          </p>
+          <div className="mt-5">
+            <LoginButton redirectTo={next} />
+          </div>
+        </div>
+        <p className="mt-4 text-center text-[13px] text-ink-2">
+          Just need a quick link?{" "}
+          <Link href="/upload" className="text-link font-medium">
+            Upload without an account
+          </Link>{" "}
+          (up to {MAX_UPLOAD_BYTES_ANON / 1024 / 1024} MB).
+        </p>
+      </div>
+    </main>
   );
 }

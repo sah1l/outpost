@@ -17,4 +17,5 @@ export const env = {
       .replace(/^"(.*)"$/s, "$1"),
   firestoreDatabaseId: () => process.env.FIRESTORE_DATABASE_ID || "(default)",
   appBaseUrl: () => required("APP_BASE_URL"),
+  contentTokenSecret: () => required("CONTENT_TOKEN_SECRET"),
 };

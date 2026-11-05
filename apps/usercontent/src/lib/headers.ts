@@ -1,43 +1,39 @@
-import type { DocRecord } from "@offsprint/shared";
+import { CONTENT_SANDBOX_FLAGS, type DocRecord } from "@offsprint/shared";
 import { env } from "@/env";
 
-// Browsers revalidate on every request (max-age=0, must-revalidate); shared
-// caches (e.g. Cloudflare edge) hold the response for s-maxage seconds. With
-// the ETag below, revalidations are cheap conditional GETs that return 304.
-const VIEW_CACHE_CONTROL = "public, max-age=0, s-maxage=60, must-revalidate";
+// Browsers revalidate every time, and shared caches like the Cloudflare edge can hold a copy for
+// 60 seconds. So making a public doc private can leave a stale copy at the edge for up to a minute.
+const PUBLIC_VIEW_CACHE_CONTROL = "public, max-age=0, s-maxage=60, must-revalidate";
 
-// Never cache misses — a 404 from a private/missing doc must not pin clients
-// to the missing state after the doc is flipped back to public.
-export const NOT_FOUND_CACHE_HEADERS: Record<string, string> = {
-  "Cache-Control": "no-store",
-};
+// Bump when what we serve for an unchanged doc changes, like the injected shim or the Markdown
+// stylesheet. Otherwise browsers holding an older copy keep getting a 304 for it.
+const SERVE_VERSION = "2";
 
+// updatedAt changes on every write through updateDoc, including visibility flips. The subpath tells
+// a zip's files apart, and is encoded because a header can't hold a name like "日本語.css".
+export function publicViewHeaders(doc: DocRecord, subpath: string | null): Record<string, string> {
+  const sub = subpath ? `-${encodeURIComponent(subpath)}` : "";
+  return {
+    "Cache-Control": PUBLIC_VIEW_CACHE_CONTROL,
+    ETag: `W/"v${SERVE_VERSION}-${doc.slug}-${doc.updatedAt}-${doc.isPublic ? 1 : 0}${sub}"`,
+  };
+}
+
+// On every response, not just HTML, so an SVG or extra page opened directly is sandboxed too.
+// Files carry Access-Control-Allow-Origin: * because a sandboxed page's own fetch(), module
+// scripts and web fonts count as cross-origin. That exposes nothing new: * never applies to
+// credentialed requests, and a private doc's files are only reachable under its token.
 export function securityHeaders(extra: Record<string, string> = {}): Record<string, string> {
   const appOrigin = env.appBaseUrl();
   return {
     "Content-Security-Policy":
+      `sandbox ${CONTENT_SANDBOX_FLAGS}; ` +
       "default-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob: https:; " +
       `frame-ancestors 'self' ${appOrigin}`,
     "X-Content-Type-Options": "nosniff",
     "Referrer-Policy": "no-referrer",
-    "X-Frame-Options": "SAMEORIGIN",
+    "Access-Control-Allow-Origin": "*",
     ...extra,
-  };
-}
-
-// Weak ETag keyed on the parts of the doc that change what we serve. updatedAt
-// changes on every write through updateDoc (including isPublic flips), so any
-// state change invalidates caches. subpath is included for zip asset routes
-// where the same (slug, updatedAt) covers many distinct files.
-export function computeETag(doc: DocRecord, subpath = ""): string {
-  const sub = subpath ? `-${subpath}` : "";
-  return `W/"${doc.slug}-${doc.updatedAt}-${doc.isPublic ? 1 : 0}${sub}"`;
-}
-
-export function viewCacheHeaders(etag: string): Record<string, string> {
-  return {
-    "Cache-Control": VIEW_CACHE_CONTROL,
-    ETag: etag,
   };
 }
 

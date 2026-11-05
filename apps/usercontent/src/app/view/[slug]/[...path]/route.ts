@@ -1,25 +1,8 @@
-import path from "node:path";
+import { roleForToken } from "@/lib/access";
 import { getDoc, touchAnonExpiry } from "@/lib/docs";
-import { bucket } from "@/lib/gcs";
-import {
-  securityHeaders,
-  contentTypeFor,
-  computeETag,
-  viewCacheHeaders,
-  NOT_FOUND_CACHE_HEADERS,
-} from "@/lib/headers";
+import { notFound, PRIVATE_VIEW_HEADERS, serveDocFile, servePublicDocFile } from "@/lib/serve";
 
 export const runtime = "nodejs";
-
-function notFound(): Response {
-  return new Response("Not found", {
-    status: 404,
-    headers: {
-      "content-type": "text/plain; charset=utf-8",
-      ...NOT_FOUND_CACHE_HEADERS,
-    },
-  });
-}
 
 export async function GET(
   req: Request,
@@ -27,34 +10,18 @@ export async function GET(
 ) {
   const { slug, path: segments } = await params;
   const doc = await getDoc(slug);
-  if (!doc || !doc.isPublic || doc.type !== "zip") return notFound();
+  if (!doc) return notFound();
 
-  const requested = segments.join("/");
-  const normalized = path.posix.normalize(requested);
-  if (normalized.startsWith("..") || normalized.startsWith("/") || normalized.includes("/..")) {
-    return notFound();
+  // /view/<slug>/~<token>/<file>: a signed-in viewer sent here by the app. The token sits in
+  // the path, not the query, so a zip site's relative links keep carrying it.
+  const first = segments[0];
+  if (first?.startsWith("~")) {
+    const role = await roleForToken(doc, first.slice(1));
+    if (!role) return notFound();
+    return serveDocFile(doc, segments.slice(1).join("/") || null, PRIVATE_VIEW_HEADERS);
   }
 
-  const etag = computeETag(doc, normalized);
-
+  if (!doc.isPublic) return notFound();
   void touchAnonExpiry(doc).catch(() => undefined);
-
-  if (req.headers.get("if-none-match") === etag) {
-    return new Response(null, { status: 304, headers: viewCacheHeaders(etag) });
-  }
-
-  const prefix = doc.gcsPath.replace(/\/index\.html$/, "");
-  const objectPath = `${prefix}/${normalized}`;
-  const file = bucket().file(objectPath);
-  const [exists] = await file.exists();
-  if (!exists) return notFound();
-
-  const [buf] = await file.download();
-  return new Response(new Uint8Array(buf), {
-    status: 200,
-    headers: securityHeaders({
-      "content-type": contentTypeFor(normalized),
-      ...viewCacheHeaders(etag),
-    }),
-  });
+  return servePublicDocFile(req, doc, segments.join("/"));
 }

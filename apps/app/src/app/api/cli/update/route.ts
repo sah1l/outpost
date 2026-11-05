@@ -1,11 +1,13 @@
 import { NextResponse } from "next/server";
 import {
+  canEditDoc,
   MAX_UPLOAD_BYTES_USER,
   type CliUploadFormat,
   type CliUploadResponse,
   type DocRecord,
 } from "@offsprint/shared";
 import { env } from "@/env";
+import { docRoleFor, viewerFromUid } from "@/lib/access";
 import { requireCliUser, cliAuthErrorResponse } from "@/lib/cli-auth";
 import { bucket } from "@/lib/gcs";
 import { getDoc, updateDoc, incrementUserStorage } from "@/lib/docs";
@@ -35,10 +37,12 @@ function detectFormatFromFilename(name: string): CliUploadFormat | null {
   return null;
 }
 
-async function loadOwnedEditableDoc(slug: string, uid: string): Promise<DocRecord> {
+async function loadEditableDoc(slug: string, uid: string): Promise<DocRecord> {
   const doc = await getDoc(slug);
   if (!doc) throw new HttpError(404, "doc not found");
-  if (doc.ownerId !== uid) throw new HttpError(403, "forbidden");
+  if (!canEditDoc(await docRoleFor(doc, await viewerFromUid(uid)))) {
+    throw new HttpError(403, "forbidden");
+  }
   if (doc.type === "zip") throw new HttpError(400, "zip docs are not editable via CLI");
   return doc;
 }
@@ -53,6 +57,11 @@ async function applyUpdate(opts: {
   const { doc, uid, body } = opts;
   const patch: Partial<DocRecord> = {};
 
+  // Editors can rewrite a doc but not decide who else sees it.
+  if (typeof opts.isPublic === "boolean" && doc.ownerId !== uid) {
+    throw new HttpError(403, "only the owner can change visibility");
+  }
+
   if (body) {
     const size = body.byteLength;
     if (size <= 0 || size > MAX_UPLOAD_BYTES_USER) throw new HttpError(413, "file too large");
@@ -60,7 +69,9 @@ async function applyUpdate(opts: {
     await bucket().file(doc.gcsPath).save(body, { contentType, resumable: false });
     const delta = size - doc.sizeBytes;
     patch.sizeBytes = size;
-    if (delta !== 0) await incrementUserStorage(uid, delta);
+    patch.contentUpdatedAt = Date.now();
+    // Charged to the doc's owner, not whichever editor happened to save it.
+    if (delta !== 0 && doc.ownerId) await incrementUserStorage(doc.ownerId, delta);
   }
 
   if (typeof opts.title === "string") {
@@ -107,7 +118,7 @@ export async function POST(req: Request) {
       const slug = resolveSlug(body.slug);
       if (!slug) return NextResponse.json({ error: "invalid slug" }, { status: 400 });
 
-      const doc = await loadOwnedEditableDoc(slug, principal.uid);
+      const doc = await loadEditableDoc(slug, principal.uid);
 
       let buffer: Buffer | null = null;
       if (typeof body.text === "string") {
@@ -139,7 +150,7 @@ export async function POST(req: Request) {
       const slug = resolveSlug(slugField);
       if (!slug) return NextResponse.json({ error: "invalid slug" }, { status: 400 });
 
-      const doc = await loadOwnedEditableDoc(slug, principal.uid);
+      const doc = await loadEditableDoc(slug, principal.uid);
 
       let buffer: Buffer | null = null;
       const fileEntry = form.get("file");

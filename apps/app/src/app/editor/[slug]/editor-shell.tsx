@@ -1,21 +1,22 @@
 "use client";
 
+import { ArrowLeft, Columns2, Code2, Eye, ExternalLink, Link2 } from "lucide-react";
 import dynamic from "next/dynamic";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { DocType } from "@offsprint/shared";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { injectSandboxShim, MARKDOWN_PAGE_CSS, type DocType } from "@offsprint/shared";
 import { marked } from "marked";
+import { AccessLabel, DocTypeIcon } from "@/components/docs/doc-labels";
+import { ShareDialog } from "@/components/share/share-dialog";
+import { Button, buttonClass } from "@/components/ui/button";
+import { Banner } from "@/components/ui/feedback";
+import { useToast } from "@/components/ui/toast";
+import { errorMessage, sendJson } from "@/lib/api-client";
 
 const CodeMirrorEditor = dynamic(
   () => import("@/components/editor/code-mirror-editor").then((m) => m.CodeMirrorEditor),
-  {
-    ssr: false,
-    loading: () => (
-      <div className="flex h-full items-center justify-center smallcaps text-[var(--ink-3)]">
-        Loading editor…
-      </div>
-    ),
-  },
+  { ssr: false, loading: () => <EditorPlaceholder /> },
 );
 
 type SaveState = "clean" | "dirty" | "saving" | "saved" | "error";
@@ -28,36 +29,41 @@ export type EditorShellProps =
       docType: DocType;
       title: string;
       initialIsPublic: boolean;
+      initialShareCount: number;
+      // Owners only: editors can change the content but not who sees it.
+      canManage: boolean;
     }
   | {
+      // Not created yet. The first save creates it, so leaving the page leaves nothing behind.
       mode: "draft";
       docType: DocType;
     };
 
 export function EditorShell(props: EditorShellProps) {
   const router = useRouter();
+  const toast = useToast();
   const { docType } = props;
+  const slug = props.mode === "edit" ? props.slug : null;
   const isDraft = props.mode === "draft";
+  const canManage = props.mode === "edit" && props.canManage;
 
-  const [source, setSource] = useState<string>("");
+  const [source, setSource] = useState("");
   const [loaded, setLoaded] = useState(isDraft);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [saveState, setSaveState] = useState<SaveState>("clean");
   const [saveError, setSaveError] = useState<string | null>(null);
-  const [title, setTitle] = useState<string>(props.mode === "edit" ? props.title : "Untitled");
-  const [isPublic, setIsPublic] = useState(props.mode === "edit" ? props.initialIsPublic : false);
-  const [pubBusy, setPubBusy] = useState(false);
-  const [toast, setToast] = useState<string | null>(null);
+  const [title, setTitle] = useState(props.mode === "edit" ? props.title : "");
+  const [isPublic, setIsPublic] = useState(props.mode === "edit" && props.initialIsPublic);
+  const [shareCount, setShareCount] = useState(props.mode === "edit" ? props.initialShareCount : 0);
   const [view, setView] = useState<ViewMode>("split");
-  const [origin, setOrigin] = useState("");
-  const lastSavedRef = useRef<string>("");
-  const navigatingRef = useRef(false);
-
-  useEffect(() => {
-    setOrigin(window.location.origin);
-  }, []);
-
-  const slug = props.mode === "edit" ? props.slug : null;
+  const [sharing, setSharing] = useState(false);
+  const [conflict, setConflict] = useState(false);
+  const lastSavedRef = useRef("");
+  const latestSourceRef = useRef("");
+  const savedTitleRef = useRef(props.mode === "edit" ? props.title : "");
+  const revRef = useRef<string | null>(null);
+  const savingRef = useRef(false);
+  const leavingRef = useRef(false);
 
   useEffect(() => {
     if (!slug) return;
@@ -65,15 +71,16 @@ export function EditorShell(props: EditorShellProps) {
     (async () => {
       try {
         const res = await fetch(`/api/docs/${slug}/content`);
-        if (!res.ok) throw new Error(`load failed: ${res.status}`);
+        if (!res.ok) throw new Error(`This doc couldn't be loaded (error ${res.status}). Reload to try again.`);
         const text = await res.text();
         if (cancelled) return;
         setSource(text);
         lastSavedRef.current = text;
+        latestSourceRef.current = text;
+        revRef.current = res.headers.get("x-content-rev");
         setLoaded(true);
       } catch (e) {
-        if (cancelled) return;
-        setLoadError(e instanceof Error ? e.message : "load failed");
+        if (!cancelled) setLoadError(errorMessage(e));
       }
     })();
     return () => {
@@ -81,44 +88,77 @@ export function EditorShell(props: EditorShellProps) {
     };
   }, [slug]);
 
-  const save = useCallback(async () => {
-    if (slug && source === lastSavedRef.current) {
+  const saveExisting = useCallback(async () => {
+    // One at a time: Ctrl+S and leaving the pane can both fire, and a second save sent before
+    // the first returns would carry an old revision and look like someone else got in first.
+    if (conflict || savingRef.current) return;
+    if (source === lastSavedRef.current) {
       setSaveState("clean");
       return;
     }
+    savingRef.current = true;
     setSaveState("saving");
     setSaveError(null);
     try {
-      if (slug) {
-        const res = await fetch(`/api/docs/${slug}/content`, {
-          method: "PUT",
-          headers: { "content-type": "text/plain; charset=utf-8" },
-          body: source,
-        });
-        if (!res.ok) throw new Error(`save failed: ${res.status}`);
-        lastSavedRef.current = source;
-        setSaveState("saved");
-        setTimeout(() => {
-          setSaveState((s) => (s === "saved" ? "clean" : s));
-        }, 1500);
-      } else {
-        const res = await fetch(`/api/docs/create`, {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ type: docType, title, content: source }),
-        });
-        if (!res.ok) throw new Error(`create failed: ${res.status}`);
-        const { slug: newSlug } = (await res.json()) as { slug: string };
-        lastSavedRef.current = source;
-        navigatingRef.current = true;
-        setSaveState("saved");
-        router.replace(`/editor/${newSlug}`);
+      const res = await fetch(`/api/docs/${slug}/content`, {
+        method: "PUT",
+        headers: {
+          "content-type": "text/plain; charset=utf-8",
+          ...(revRef.current ? { "x-expected-rev": revRef.current } : {}),
+        },
+        body: source,
+      });
+      if (res.status === 409) {
+        setConflict(true);
+        setSaveState("error");
+        setSaveError("Not saved");
+        return;
       }
+      if (res.status === 413) throw new Error("Too large to save");
+      if (!res.ok) throw new Error("Not saved");
+      const { rev } = (await res.json()) as { rev: number };
+      revRef.current = String(rev);
+      lastSavedRef.current = source;
+      if (latestSourceRef.current !== source) {
+        setSaveState("dirty");
+        return;
+      }
+      setSaveState("saved");
+      setTimeout(() => {
+        setSaveState((s) => (s === "saved" ? "clean" : s));
+      }, 1500);
     } catch (e) {
       setSaveState("error");
-      setSaveError(e instanceof Error ? e.message : "save failed");
+      setSaveError(errorMessage(e, "Not saved"));
+    } finally {
+      savingRef.current = false;
     }
-  }, [slug, source, docType, title, router]);
+  }, [slug, source, conflict]);
+
+  const createFromDraft = useCallback(async () => {
+    // The guard matters more here: a second request would create a second doc.
+    if (savingRef.current) return;
+    savingRef.current = true;
+    setSaveState("saving");
+    setSaveError(null);
+    try {
+      const { slug: newSlug } = await sendJson<{ slug: string }>("/api/docs/create", "POST", {
+        type: docType,
+        title,
+        content: source,
+      });
+      leavingRef.current = true;
+      setSaveState("saved");
+      toast("Doc created. Only you can open it until you share it");
+      router.replace(`/editor/${newSlug}`);
+    } catch (e) {
+      setSaveState("error");
+      setSaveError(errorMessage(e, "Not created"));
+      savingRef.current = false;
+    }
+  }, [docType, title, source, router, toast]);
+
+  const save = isDraft ? createFromDraft : saveExisting;
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -131,189 +171,172 @@ export function EditorShell(props: EditorShellProps) {
     return () => window.removeEventListener("keydown", onKey);
   }, [save]);
 
-  // Warn before discarding an unsaved draft.
+  // Warn before closing the tab on work that hasn't been saved.
+  const hasUnsavedWork = isDraft ? source.trim().length > 0 : saveState === "dirty" || conflict;
   useEffect(() => {
-    if (!isDraft) return;
+    if (!hasUnsavedWork) return;
     function onBeforeUnload(e: BeforeUnloadEvent) {
-      if (navigatingRef.current) return;
-      if (!source.trim()) return;
+      if (leavingRef.current) return;
       e.preventDefault();
       e.returnValue = "";
     }
     window.addEventListener("beforeunload", onBeforeUnload);
     return () => window.removeEventListener("beforeunload", onBeforeUnload);
-  }, [isDraft, source]);
+  }, [hasUnsavedWork]);
 
   function onChange(next: string) {
     setSource(next);
-    if (slug) {
-      setSaveState(next === lastSavedRef.current ? "clean" : "dirty");
-    } else {
-      setSaveState(next.trim() ? "dirty" : "clean");
-    }
+    latestSourceRef.current = next;
+    if (isDraft) setSaveState(next.trim() ? "dirty" : "clean");
+    else if (!conflict) setSaveState(next === lastSavedRef.current ? "clean" : "dirty");
   }
 
-  function onBlurSave() {
-    // In draft mode, don't materialize a doc just because the user tabbed
-    // out of an empty editor — wait for explicit Save or non-empty content.
-    if (isDraft && !source.trim()) return;
-    void save();
+  // Saved docs save when you click away. A draft doesn't: clicking the title field to
+  // name it would create the doc as "Untitled" and navigate away mid-thought.
+  function onPaneBlur() {
+    if (!isDraft) void saveExisting();
   }
 
-  async function togglePublic() {
+  async function saveTitle() {
     if (!slug) return;
-    const next = !isPublic;
-    setPubBusy(true);
-    const prev = isPublic;
-    setIsPublic(next);
+    const next = title.trim();
+    if (!next) {
+      setTitle(savedTitleRef.current);
+      return;
+    }
+    if (next === savedTitleRef.current) return;
     try {
-      const res = await fetch(`/api/docs/${slug}`, {
-        method: "PATCH",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ isPublic: next }),
-      });
-      if (!res.ok) throw new Error(`update failed: ${res.status}`);
-      showToast(next ? "Now public" : "Now private");
+      const updated = await sendJson<{ title: string }>(`/api/docs/${slug}`, "PATCH", { title: next });
+      savedTitleRef.current = updated.title;
+      setTitle(updated.title);
+      toast("Renamed");
     } catch (e) {
-      setIsPublic(prev);
-      showToast(e instanceof Error ? e.message : "Toggle failed");
-    } finally {
-      setPubBusy(false);
+      setTitle(savedTitleRef.current);
+      toast(errorMessage(e), "error");
     }
   }
 
   async function copyLink() {
-    if (!slug || !isPublic) {
-      showToast("Make it public first");
-      return;
-    }
     try {
-      await navigator.clipboard.writeText(`${origin}/s/${slug}`);
-      showToast("Link copied");
+      await navigator.clipboard.writeText(`${window.location.origin}/s/${slug}`);
+      toast(isPublic ? "Link copied" : "Link copied. Only people with access can open it");
     } catch {
-      showToast("Copy failed");
+      toast("Your browser blocked copying. Copy the link from the address bar instead.", "error");
     }
-  }
-
-  function showToast(msg: string) {
-    setToast(msg);
-    setTimeout(() => setToast(null), 1600);
   }
 
   if (loadError) {
     return (
-      <div className="flex flex-1 items-center justify-center p-10">
-        <div className="max-w-md border border-[var(--red)] bg-[var(--paper)] p-6">
-          <div className="smallcaps mb-2" style={{ color: "var(--red)" }}>
-            Load error
-          </div>
-          <p className="font-mono text-[12px] text-[var(--ink)]">{loadError}</p>
+      <div className="flex h-dvh items-center justify-center bg-surface p-6">
+        <div className="w-full max-w-md">
+          <Banner>{loadError}</Banner>
+          <Link href="/dashboard" className={buttonClass({ className: "mt-4" })}>
+            Back to your docs
+          </Link>
         </div>
       </div>
     );
   }
 
-  const shareUrl = slug ? `${origin}/s/${slug}` : "";
-  const saveDisabled =
-    saveState === "saving" || (slug ? saveState === "clean" : !source.trim() && title.trim() === "Untitled");
+  const canSave = isDraft ? source.trim().length > 0 : saveState === "dirty" || saveState === "error";
 
   return (
-    <>
-      <div className="relative z-[5] flex flex-col border-b border-[var(--ink)] bg-[var(--paper)]">
-        <div className="flex flex-wrap items-center gap-3 px-4 py-3 sm:px-6">
-          <div className="flex min-w-0 items-center gap-3">
-            <span
-              className="flex h-6 items-center border border-[var(--ink)] bg-[var(--paper-2)] px-1.5 smallcaps"
-              style={{ letterSpacing: "0.18em" }}
-            >
-              {docType}
-            </span>
-            {isDraft ? (
-              <input
-                type="text"
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                placeholder="Untitled"
-                aria-label="Title"
-                className="min-w-0 flex-1 truncate border-b border-transparent bg-transparent font-display text-xl text-[var(--ink)] outline-none focus:border-[var(--ink)]/40"
-              />
-            ) : (
-              <h1 className="truncate font-display text-xl text-[var(--ink)]">
-                {title}
-              </h1>
-            )}
-          </div>
-
-          <div className="hidden h-5 w-px bg-[var(--ink)]/25 md:block" />
-
-          <div className="flex items-center gap-2 font-mono text-[11px] text-[var(--ink-3)]">
-            <span className="smallcaps">URL</span>
-            <span className="max-w-[220px] truncate text-[var(--ink)]">
-              {slug ? `/s/${slug}` : "— unsaved draft —"}
-            </span>
-          </div>
-
-          <div className="ml-auto flex flex-wrap items-center gap-3">
-            <SaveIndicator state={saveState} error={saveError} isDraft={isDraft} />
-
-            <ViewTabs value={view} onChange={setView} />
-
-            <button
-              onClick={copyLink}
-              disabled={!slug || !isPublic}
-              className="btn-ghost"
-              title={
-                !slug
-                  ? "Save first to share"
-                  : isPublic
-                    ? "Copy share link"
-                    : "Make public to share"
+    <div className="flex h-dvh min-h-0 flex-col bg-surface">
+      <header className="flex shrink-0 flex-wrap items-center gap-x-2 gap-y-1.5 border-b border-line px-2 py-2 sm:px-3">
+        <div className="flex min-w-0 flex-1 basis-56 items-center gap-1.5">
+          <Link
+            href="/dashboard"
+            aria-label="Back to your docs"
+            title="Back to your docs"
+            className={buttonClass({ variant: "ghost", size: "sm", icon: true, className: "shrink-0" })}
+          >
+            <ArrowLeft size={16} aria-hidden="true" />
+          </Link>
+          <DocTypeIcon type={docType} size={17} />
+          <input
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            onBlur={() => void saveTitle()}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") e.currentTarget.blur();
+              if (e.key === "Escape") {
+                setTitle(savedTitleRef.current);
+                e.currentTarget.blur();
               }
-            >
-              <span className="smallcaps" style={{ color: "inherit" }}>
-                Copy link
-              </span>
-            </button>
-
-            <div
-              className="flex items-center gap-2 border border-[var(--ink)] bg-[var(--paper)] px-2.5 py-1.5"
-              title={
-                !slug
-                  ? "Save first to share"
-                  : isPublic
-                    ? shareUrl
-                    : "Private — only you can see this"
-              }
-            >
-              <span
-                className={`smallcaps ${isPublic ? "text-[var(--accent)]" : "text-[var(--ink-3)]"}`}
-              >
-                {isPublic ? "Public" : "Private"}
-              </span>
-              <button
-                type="button"
-                role="switch"
-                aria-checked={isPublic}
-                onClick={togglePublic}
-                disabled={!slug || pubBusy}
-                className="pub-switch"
-                data-on={isPublic}
-              />
-            </div>
-
-            <button
-              onClick={() => void save()}
-              disabled={saveDisabled}
-              className="btn-accent"
-            >
-              {saveState === "saving" ? "Saving…" : isDraft ? "Save & publish" : "Save"}
-            </button>
-          </div>
+            }}
+            placeholder="Untitled"
+            maxLength={200}
+            aria-label="Title"
+            // As wide as the title, so what comes after it sits next to it.
+            size={Math.min(Math.max(title.length + 2, 12), 48)}
+            className="h-8 min-w-0 truncate rounded-control border border-transparent bg-transparent px-1.5 text-[14px] font-medium text-ink outline-none transition-colors placeholder:text-ink-3 hover:border-line focus:border-line-strong"
+          />
+          {slug && (
+            <span className="hidden shrink-0 md:inline-flex">
+              <AccessLabel isPublic={isPublic} shareCount={shareCount} />
+            </span>
+          )}
         </div>
-      </div>
+
+        <div className="ml-auto flex items-center gap-1.5">
+          <SaveStatus state={saveState} error={saveError} isDraft={isDraft} />
+          <ViewTabs value={view} onChange={setView} />
+          {slug && (
+            <>
+              <a
+                href={`/s/${slug}`}
+                target="_blank"
+                rel="noreferrer"
+                aria-label="Open in new tab"
+                title="Open in new tab"
+                className={buttonClass({ variant: "ghost", size: "sm", icon: true })}
+              >
+                <ExternalLink size={16} aria-hidden="true" />
+              </a>
+              <Button
+                variant="ghost"
+                size="sm"
+                icon
+                aria-label="Copy link"
+                title="Copy link"
+                onClick={() => void copyLink()}
+              >
+                <Link2 size={16} aria-hidden="true" />
+              </Button>
+            </>
+          )}
+          {canManage && (
+            <Button size="sm" onClick={() => setSharing(true)}>
+              Share
+            </Button>
+          )}
+          <Button
+            size="sm"
+            variant="primary"
+            onClick={() => void save()}
+            disabled={conflict || saveState === "saving" || !canSave}
+          >
+            {isDraft ? "Create doc" : "Save"}
+          </Button>
+        </div>
+      </header>
+
+      {conflict && (
+        <Banner
+          className="rounded-none"
+          action={
+            <Button size="sm" onClick={() => window.location.reload()}>
+              Reload
+            </Button>
+          }
+        >
+          Someone else saved this doc after you opened it, so your changes weren&apos;t saved. Copy
+          anything you want to keep, then reload to get the latest version.
+        </Banner>
+      )}
 
       <div
-        className={`relative z-[1] grid min-h-0 flex-1 ${
+        className={`grid min-h-0 flex-1 ${
           view === "split"
             ? "grid-cols-1 grid-rows-2 md:grid-cols-2 md:grid-rows-1"
             : "grid-cols-1 grid-rows-1"
@@ -321,88 +344,89 @@ export function EditorShell(props: EditorShellProps) {
       >
         {view !== "preview" && (
           <div
-            className={`relative min-h-0 ${view === "split" ? "border-b border-[var(--ink)]/30 md:border-b-0 md:border-r" : ""}`}
-            onBlur={onBlurSave}
+            className={`min-h-0 overflow-hidden ${view === "split" ? "border-b border-line md:border-b-0 md:border-r" : ""}`}
+            onBlur={onPaneBlur}
           >
-            <PaneLabel label={`Source · ${docType}`} />
             {loaded ? (
               <CodeMirrorEditor
                 value={source}
                 onChange={onChange}
                 language={docType === "md" ? "md" : "html"}
+                autoFocus={isDraft}
+                placeholder={
+                  isDraft
+                    ? docType === "md"
+                      ? "Write some Markdown, or paste what your AI wrote"
+                      : "Write some HTML, or paste what your AI wrote"
+                    : undefined
+                }
               />
             ) : (
-              <div className="flex h-full items-center justify-center smallcaps text-[var(--ink-3)]">
-                Loading…
-              </div>
+              <EditorPlaceholder />
             )}
           </div>
         )}
         {view !== "source" && (
-          <div className="relative min-h-0">
-            <PaneLabel label="Preview" align="right" />
+          <div className="min-h-0">
             <PreviewPane source={source} docType={docType} />
           </div>
         )}
       </div>
 
-      {toast && (
-        <div className="pointer-events-none fixed bottom-6 left-1/2 z-50 -translate-x-1/2 border border-[var(--ink)] bg-[var(--ink)] px-4 py-2 smallcaps text-[var(--paper)] shadow-[4px_4px_0_0_var(--accent)]">
-          {toast}
-        </div>
+      {sharing && slug && (
+        <ShareDialog
+          slug={slug}
+          title={title}
+          isPublic={isPublic}
+          onClose={() => setSharing(false)}
+          onChange={(change) => {
+            setIsPublic(change.isPublic);
+            setShareCount(change.shares.length);
+          }}
+        />
       )}
-    </>
+    </div>
   );
 }
 
-function ViewTabs({
-  value,
-  onChange,
-}: {
-  value: ViewMode;
-  onChange: (v: ViewMode) => void;
-}) {
-  const tabs: { id: ViewMode; label: string }[] = [
-    { id: "source", label: "Src" },
-    { id: "split", label: "Split" },
-    { id: "preview", label: "View" },
+function EditorPlaceholder() {
+  return (
+    <div className="space-y-3 p-5" aria-label="Loading editor">
+      <div className="skeleton h-3 w-2/3" />
+      <div className="skeleton h-3 w-1/2" />
+      <div className="skeleton h-3 w-3/5" />
+    </div>
+  );
+}
+
+function ViewTabs({ value, onChange }: { value: ViewMode; onChange: (v: ViewMode) => void }) {
+  const tabs: { id: ViewMode; label: string; icon: ReactNode }[] = [
+    { id: "source", label: "Source only", icon: <Code2 size={15} aria-hidden="true" /> },
+    { id: "split", label: "Source and preview", icon: <Columns2 size={15} aria-hidden="true" /> },
+    { id: "preview", label: "Preview only", icon: <Eye size={15} aria-hidden="true" /> },
   ];
   return (
-    <div className="hidden border border-[var(--ink)] md:flex">
+    <div role="group" aria-label="Layout" className="flex rounded-control bg-hover p-0.5">
       {tabs.map((t) => (
         <button
           key={t.id}
           type="button"
+          aria-label={t.label}
+          aria-pressed={value === t.id}
+          title={t.label}
           onClick={() => onChange(t.id)}
-          data-active={value === t.id}
-          className="smallcaps px-2.5 py-1.5 transition-colors data-[active=true]:bg-[var(--ink)] data-[active=true]:text-[var(--paper)]"
+          className={`flex h-7 w-7 items-center justify-center rounded-[5px] transition-colors ${
+            value === t.id ? "bg-surface text-ink" : "text-ink-3 hover:text-ink"
+          }`}
         >
-          {t.label}
+          {t.icon}
         </button>
       ))}
     </div>
   );
 }
 
-function PaneLabel({
-  label,
-  align = "left",
-}: {
-  label: string;
-  align?: "left" | "right";
-}) {
-  return (
-    <div
-      className={`pointer-events-none absolute top-2 z-[2] smallcaps bg-[var(--paper)]/80 px-2 py-0.5 ${
-        align === "right" ? "right-3" : "left-3"
-      }`}
-    >
-      {label}
-    </div>
-  );
-}
-
-function SaveIndicator({
+function SaveStatus({
   state,
   error,
   isDraft,
@@ -411,39 +435,17 @@ function SaveIndicator({
   error: string | null;
   isDraft: boolean;
 }) {
-  const base = "flex items-center gap-1.5 smallcaps tabular-nums";
-  if (state === "error")
-    return (
-      <span className={base} style={{ color: "var(--red)" }}>
-        <span className="h-1.5 w-1.5 rounded-full bg-[var(--red)]" />
-        {error ?? "Error"}
-      </span>
-    );
-  if (state === "saving")
-    return (
-      <span className={base} style={{ color: "var(--ink-3)" }}>
-        <span className="h-1.5 w-1.5 rounded-full bg-[var(--ink-3)] animate-pulse" />
-        {isDraft ? "Publishing" : "Saving"}
-      </span>
-    );
-  if (state === "saved")
-    return (
-      <span className={base} style={{ color: "var(--green)" }}>
-        <span className="h-1.5 w-1.5 rounded-full bg-[var(--green)]" />
-        Saved
-      </span>
-    );
-  if (state === "dirty")
-    return (
-      <span className={base} style={{ color: "var(--accent)" }}>
-        <span className="h-1.5 w-1.5 rounded-full bg-[var(--accent)]" />
-        Unsaved
-      </span>
-    );
+  const content: Record<SaveState, { text: string; tone: string }> = {
+    clean: { text: isDraft ? "Not created yet" : "All changes saved", tone: "text-ink-3" },
+    dirty: { text: isDraft ? "Not created yet" : "Unsaved changes", tone: "text-warn" },
+    saving: { text: isDraft ? "Creating" : "Saving", tone: "text-ink-3" },
+    saved: { text: "Saved", tone: "text-ok" },
+    error: { text: error ?? "Not saved", tone: "text-danger" },
+  };
+  const { text, tone } = content[state];
   return (
-    <span className={base} style={{ color: "var(--ink-4)" }}>
-      <span className="h-1.5 w-1.5 rounded-full bg-[var(--ink-4)]" />
-      {isDraft ? "New draft" : "Up to date"}
+    <span role="status" className={`mr-1 hidden whitespace-nowrap text-[13px] sm:inline ${tone}`}>
+      {text}
     </span>
   );
 }
@@ -459,13 +461,22 @@ function PreviewPane({ source, docType }: { source: string; docType: DocType }) 
     if (docType === "md") {
       try {
         const body = marked.parse(debounced) as string;
-        return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;max-width:760px;margin:1.5rem auto;padding:0 1rem;line-height:1.6}pre,code{background:#f5f5f5;border-radius:4px}pre{padding:.6rem;overflow:auto}code{padding:.1rem .3rem}pre code{background:transparent;padding:0}img{max-width:100%}</style></head><body>${body}</body></html>`;
+        return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>${MARKDOWN_PAGE_CSS}</style></head><body>${body}</body></html>`;
       } catch {
-        return "<p>Markdown error</p>";
+        return "<p>This Markdown couldn't be previewed.</p>";
       }
     }
-    return debounced;
+    // Same shim as the published page, so a page that crashes without storage looks the same here.
+    return injectSandboxShim(debounced);
   }, [debounced, docType]);
+
+  if (!debounced.trim()) {
+    return (
+      <div className="flex h-full items-center justify-center bg-canvas px-6 text-center text-[13px] text-ink-3">
+        Your preview shows up here.
+      </div>
+    );
+  }
 
   return (
     <iframe

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import type { DocRecord, DocType } from "@offsprint/shared";
 import { MAX_UPLOAD_BYTES_USER } from "@offsprint/shared";
-import { requireUser, AuthError } from "@/lib/auth";
+import { sessionOr401 } from "@/lib/auth";
 import { bucket } from "@/lib/gcs";
 import { createDoc, gcsPrefixFor, incrementUserStorage } from "@/lib/docs";
 import { allocateContentAwareSlug } from "@/lib/slug";
@@ -15,14 +15,11 @@ interface CreateBody {
   content?: string;
 }
 
+// The first save of a doc started in the editor. It isn't created any earlier, so leaving
+// the page creates nothing and the slug comes from real content rather than "Untitled".
 export async function POST(req: Request) {
-  let user;
-  try {
-    user = await requireUser();
-  } catch (e) {
-    if (e instanceof AuthError) return NextResponse.json({ error: "unauthenticated" }, { status: 401 });
-    throw e;
-  }
+  const user = await sessionOr401();
+  if (user instanceof NextResponse) return user;
 
   const body = (await req.json().catch(() => null)) as CreateBody | null;
   if (!body || (body.type !== "html" && body.type !== "md")) {

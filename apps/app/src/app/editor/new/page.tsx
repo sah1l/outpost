@@ -1,36 +1,22 @@
+import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import type { DocType } from "@offsprint/shared";
 import { getSessionUser } from "@/lib/auth";
-import { SiteHeader, Breadcrumb } from "@/components/chrome/site-header";
 import { EditorShell } from "../[slug]/editor-shell";
 
 export const dynamic = "force-dynamic";
+export const metadata: Metadata = { title: "New doc" };
 
 export default async function NewDraftPage({
   searchParams,
 }: {
   searchParams: Promise<{ type?: string }>;
 }) {
+  const { type } = await searchParams;
+  const docType: DocType = type === "html" ? "html" : "md";
+
   const user = await getSessionUser();
-  if (!user) redirect("/login");
+  if (!user) redirect(`/login?next=${encodeURIComponent(`/editor/new?type=${docType}`)}`);
 
-  const { type: typeParam } = await searchParams;
-  const docType: DocType = typeParam === "html" ? "html" : "md";
-
-  return (
-    <div className="flex h-screen min-h-0 flex-col">
-      <SiteHeader
-        user={user}
-        breadcrumb={
-          <Breadcrumb
-            items={[
-              { label: "dashboard", href: "/dashboard" },
-              { label: "new draft" },
-            ]}
-          />
-        }
-      />
-      <EditorShell mode="draft" docType={docType} />
-    </div>
-  );
+  return <EditorShell mode="draft" docType={docType} />;
 }

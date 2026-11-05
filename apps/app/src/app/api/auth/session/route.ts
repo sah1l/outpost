@@ -26,6 +26,7 @@ export async function POST(req: Request) {
   await upsertUserRecord({
     uid: decoded.uid,
     email: decoded.email ?? "",
+    emailVerified: decoded.email_verified === true,
     displayName: (decoded.name as string | undefined) ?? null,
     photoURL: (decoded.picture as string | undefined) ?? null,
   });

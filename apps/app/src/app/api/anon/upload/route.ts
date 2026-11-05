@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import type { DocRecord, DocType } from "@offsprint/shared";
-import { ANON_DOC_TTL_DAYS, MAX_UPLOAD_BYTES_ANON } from "@offsprint/shared";
+import { ANON_DAILY_UPLOAD_LIMIT_PER_IP, ANON_DOC_TTL_DAYS, MAX_UPLOAD_BYTES_ANON } from "@offsprint/shared";
 import { bucket } from "@/lib/gcs";
 import { allocateSlug, allocateContentAwareSlug } from "@/lib/slug";
 import { createDoc, gcsPrefixFor } from "@/lib/docs";
@@ -26,7 +26,10 @@ export async function POST(req: Request) {
   const ip = extractClientIp(req);
   const quota = await checkAndIncrementAnonUploadQuota(ip);
   if (!quota.ok) {
-    return NextResponse.json({ error: "rate limit: max 5 uploads per day from your address" }, { status: 429 });
+    return NextResponse.json(
+      { error: `You've reached the limit of ${ANON_DAILY_UPLOAD_LIMIT_PER_IP} uploads a day without an account. Sign in to keep going.` },
+      { status: 429 },
+    );
   }
 
   const form = await req.formData().catch(() => null);

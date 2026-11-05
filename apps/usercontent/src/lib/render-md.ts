@@ -1,3 +1,4 @@
+import { MARKDOWN_PAGE_CSS } from "@offsprint/shared";
 import { marked, Renderer } from "marked";
 
 const MERMAID_VERSION = "11.4.0";
@@ -23,25 +24,7 @@ export async function renderMarkdown(source: string, title: string): Promise<str
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>${escapeHtml(title)}</title>
-<style>
-  :root { color-scheme: light dark; }
-  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; max-width: 760px; margin: 2rem auto; padding: 0 1.25rem; line-height: 1.6; }
-  pre { background: #f5f5f5; padding: 0.75rem; border-radius: 6px; overflow: auto; }
-  code { background: #f5f5f5; padding: 0.1rem 0.3rem; border-radius: 3px; }
-  pre code { background: transparent; padding: 0; }
-  pre.mermaid { background: transparent; padding: 0; text-align: center; }
-  img { max-width: 100%; }
-  table { border-collapse: collapse; }
-  th, td { border: 1px solid #ddd; padding: 0.4rem 0.6rem; }
-  blockquote { border-left: 3px solid #ccc; margin: 0; padding-left: 1rem; color: #555; }
-  @media (prefers-color-scheme: dark) {
-    body { background: #111; color: #eee; }
-    pre, code { background: #1e1e1e; }
-    pre.mermaid { background: transparent; }
-    blockquote { border-color: #444; color: #aaa; }
-    th, td { border-color: #333; }
-  }
-</style>
+<style>${MARKDOWN_PAGE_CSS}</style>
 </head>
 <body>
 ${body}

@@ -126,6 +126,24 @@ foreach ($sa in @("offsprint-app","offsprint-usercontent")) {
 
 Delete the local `firebase-admin-key.json` after uploading.
 
+### Content token secret
+
+The app signs short-lived viewing links for private docs and usercontent checks them, so both services need the same value. The deploy fails if this secret doesn't exist, so create it first:
+
+```powershell
+$bytes = [byte[]]::new(32)
+[System.Security.Cryptography.RandomNumberGenerator]::Fill($bytes)
+[Convert]::ToBase64String($bytes) | gcloud secrets create CONTENT_TOKEN_SECRET --data-file=-
+
+foreach ($sa in @("offsprint-app","offsprint-usercontent")) {
+  gcloud secrets add-iam-policy-binding CONTENT_TOKEN_SECRET `
+    --member="serviceAccount:$sa@$PROJECT_ID.iam.gserviceaccount.com" `
+    --role="roles/secretmanager.secretAccessor"
+}
+```
+
+To rotate it, add a new secret version and redeploy. Private docs that are already open stop loading new files until the page is reloaded. Nothing else depends on the value.
+
 ## 5. Artifact Registry
 
 ```powershell
@@ -185,7 +203,7 @@ gcloud iam workload-identity-pools providers create-oidc github-actions `
   --display-name="GitHub Actions OIDC" `
   --issuer-uri="https://token.actions.githubusercontent.com" `
   --attribute-mapping="google.subject=assertion.sub,attribute.repository=assertion.repository,attribute.ref=assertion.ref" `
-  --attribute-condition="assertion.repository == '<github-org>/<repo>'"
+  --attribute-condition="assertion.repository == 'sah1l/outpost'"
 
 # Allow this repo's master branch to impersonate the deployer SA
 gcloud iam service-accounts add-iam-policy-binding $DEPLOYER `

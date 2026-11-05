@@ -1,82 +1,28 @@
-import type { SVGProps } from "react";
-
-export function LogoMark({
-  size = 22,
-  accent = "var(--accent)",
-  ink = "currentColor",
-  ...rest
-}: {
-  size?: number;
-  accent?: string;
-  ink?: string;
-} & Omit<SVGProps<SVGSVGElement>, "width" | "height">) {
+// An O with its outpost: a ring, and one dot standing off on its own.
+export function LogoMark({ size = 22 }: { size?: number }) {
   return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 32 32"
-      fill="none"
-      aria-hidden="true"
-      {...rest}
-    >
-      {/* Left chevron */}
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden="true">
       <path
-        d="M10 7 L3 16 L10 25"
-        stroke={ink}
-        strokeWidth="2"
-        strokeLinecap="square"
-        strokeLinejoin="miter"
-        fill="none"
+        d="M18.39 11.7A7.5 7.5 0 1 1 12.3 5.61"
+        stroke="currentColor"
+        strokeWidth="3"
+        strokeLinecap="round"
       />
-      {/* Right chevron */}
-      <path
-        d="M22 7 L29 16 L22 25"
-        stroke={ink}
-        strokeWidth="2"
-        strokeLinecap="square"
-        strokeLinejoin="miter"
-        fill="none"
-      />
-      {/* Diamond core */}
-      <path d="M16 10 L21 16 L16 22 L11 16 Z" fill={accent} />
-      {/* Cut through diamond for texture */}
-      <path
-        d="M11 16 L21 16"
-        stroke={ink}
-        strokeWidth="1"
-        opacity="0.85"
-      />
+      <circle cx="18" cy="6" r="2.5" fill="var(--link)" />
     </svg>
   );
 }
 
-export function Wordmark({
-  size = "md",
-  showMark = true,
-}: {
-  size?: "sm" | "md" | "lg" | "xl" | "hero";
-  showMark?: boolean;
-}) {
-  const sizes = {
-    sm: { mark: 18, text: "text-[15px]", gap: "gap-2" },
-    md: { mark: 22, text: "text-[18px]", gap: "gap-2.5" },
-    lg: { mark: 32, text: "text-[26px]", gap: "gap-3" },
-    xl: { mark: 48, text: "text-[40px]", gap: "gap-4" },
-    hero: { mark: 72, text: "text-[64px]", gap: "gap-5" },
-  } as const;
-  const s = sizes[size];
+export function Wordmark({ size = "md" }: { size?: "md" | "lg" }) {
+  const large = size === "lg";
   return (
-    <span className={`inline-flex items-center ${s.gap}`}>
-      {showMark && <LogoMark size={s.mark} />}
+    <span className="inline-flex items-center gap-1.5 text-ink">
+      <LogoMark size={large ? 28 : 22} />
       <span
-        className={`font-display ${s.text} font-medium leading-none tracking-[-0.01em]`}
+        className={`font-semibold tracking-[-0.015em] ${large ? "text-[20px]" : "text-[15px]"}`}
+        style={{ fontStretch: "110%" }}
       >
-        share
-        <span
-          className="mx-[0.15em] inline-block align-middle h-[0.08em] min-h-[2px] w-[0.4em] bg-[var(--accent)]"
-          aria-hidden="true"
-        />
-        html
+        Outpost
       </span>
     </span>
   );

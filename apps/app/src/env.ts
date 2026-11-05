@@ -31,6 +31,7 @@ export const env = {
   usercontentBaseUrl: () => required("USERCONTENT_BASE_URL"),
   appBaseUrl: () => required("APP_BASE_URL"),
   appBaseUrlNoTrailingSlash: () => required("APP_BASE_URL").replace(/\/$/, ""),
+  contentTokenSecret: () => required("CONTENT_TOKEN_SECRET"),
 
   minimaxApiKey: () => process.env.MINIMAX_API_KEY || "",
   minimaxModel: () => process.env.MINIMAX_MODEL || "MiniMax-M2",

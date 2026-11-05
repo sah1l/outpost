@@ -1,175 +1,160 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { Check, ExternalLink, FileUp, Link2, Loader2, X } from "lucide-react";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
+import { useRef, useState, type FormEvent } from "react";
 import {
-  MAX_UPLOAD_BYTES_USER,
+  ANON_DOC_TTL_DAYS,
   MAX_UPLOAD_BYTES_ANON,
-  type DocType,
-  type InitUploadResponse,
+  MAX_UPLOAD_BYTES_USER,
 } from "@offsprint/shared";
-
-function detectType(filename: string): DocType | null {
-  const lower = filename.toLowerCase();
-  if (lower.endsWith(".zip")) return "zip";
-  if (lower.endsWith(".md") || lower.endsWith(".markdown")) return "md";
-  if (lower.endsWith(".html") || lower.endsWith(".htm")) return "html";
-  return null;
-}
-
-function contentTypeFor(type: DocType): string {
-  if (type === "zip") return "application/zip";
-  if (type === "md") return "text/markdown";
-  return "text/html";
-}
-
-const ANON_SESSION_KEY = "offsprint_anon_session";
-
-function getAnonSessionId(): string {
-  if (typeof window === "undefined") return "";
-  let id = window.sessionStorage.getItem(ANON_SESSION_KEY);
-  if (!id) {
-    id = crypto.randomUUID();
-    window.sessionStorage.setItem(ANON_SESSION_KEY, id);
-  }
-  return id;
-}
-
-function prettyBytes(n: number): string {
-  if (n < 1024) return `${n} B`;
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
-  return `${(n / 1024 / 1024).toFixed(2)} MB`;
-}
+import { DocTypeIcon } from "@/components/docs/doc-labels";
+import { Button, buttonClass } from "@/components/ui/button";
+import { Banner } from "@/components/ui/feedback";
+import { errorMessage } from "@/lib/api-client";
+import { formatBytes } from "@/lib/format";
+import {
+  ACCEPTED_FILE_TYPES,
+  detectDocType,
+  fileProblem,
+  uploadAnonymous,
+  uploadSignedIn,
+} from "@/lib/upload-client";
 
 export function UploadForm({ loggedIn }: { loggedIn: boolean }) {
   const router = useRouter();
   const [file, setFile] = useState<File | null>(null);
   const [title, setTitle] = useState("");
-  const [makePublic, setMakePublic] = useState(false);
-  const [status, setStatus] = useState<string | null>(null);
+  const [step, setStep] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [result, setResult] = useState<{ slug: string; isPublic: boolean } | null>(null);
-  const [origin, setOrigin] = useState<string>("");
+  const [resultSlug, setResultSlug] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
+  const [copied, setCopied] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => {
-    setOrigin(window.location.origin);
-  }, []);
-
   const maxBytes = loggedIn ? MAX_UPLOAD_BYTES_USER : MAX_UPLOAD_BYTES_ANON;
-  const detectedType = file ? detectType(file.name) : null;
+  const maxMb = maxBytes / 1024 / 1024;
+  const fileType = file ? detectDocType(file.name) : null;
 
-  function pickFile(f: File | null) {
+  function pickFile(next: File | null | undefined) {
     setError(null);
-    setResult(null);
-    setFile(f);
+    setResultSlug(null);
+    if (!next) {
+      setFile(null);
+      if (inputRef.current) inputRef.current.value = "";
+      return;
+    }
+    const problem = fileProblem(next, maxBytes);
+    if (problem) {
+      setError(problem);
+      return;
+    }
+    setFile(next);
   }
 
-  async function onSubmit(e: React.FormEvent) {
+  async function onSubmit(e: FormEvent) {
     e.preventDefault();
+    if (!file) return;
     setError(null);
-    setResult(null);
-    if (!file) {
-      setError("Pick a file first.");
-      return;
-    }
-    if (file.size > maxBytes) {
-      setError(`File too large. Max ${(maxBytes / 1024 / 1024).toFixed(0)} MB.`);
-      return;
-    }
-    const type = detectType(file.name);
-    if (!type) {
-      setError("Only .html, .md, or .zip files are supported.");
-      return;
-    }
-
     try {
       if (loggedIn) {
-        const slug = await uploadLoggedIn(file, type, title);
-        setStatus("Opening editor...");
-        // Editor is only available for html/md. ZIPs go to dashboard.
-        if (type === "zip") {
-          router.push("/dashboard");
-        } else {
-          router.push(`/editor/${slug}`);
-        }
+        const { slug, type } = await uploadSignedIn(file, title, setStep);
+        setStep("Opening");
+        // HTML and Markdown go straight to the editor. A ZIP is a site, with nothing to edit.
+        router.push(type === "zip" ? "/dashboard" : `/editor/${slug}`);
       } else {
-        await uploadAnon(file, title, makePublic);
+        setStep("Uploading");
+        const { slug } = await uploadAnonymous(file, title);
+        setResultSlug(slug);
+        setStep(null);
       }
     } catch (err) {
-      setStatus(null);
-      setError(err instanceof Error ? err.message : "upload failed");
+      setStep(null);
+      setError(errorMessage(err, "The upload failed. Try again."));
     }
   }
 
-  async function uploadLoggedIn(f: File, type: DocType, t: string): Promise<string> {
-    setStatus("Preparing upload...");
-    const contentType = contentTypeFor(type);
-    const initRes = await fetch("/api/docs/init", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        filename: f.name,
-        contentType,
-        sizeBytes: f.size,
-        title: t || f.name,
-      }),
-    });
-    if (!initRes.ok) throw new Error(`init failed: ${await initRes.text()}`);
-    const init = (await initRes.json()) as InitUploadResponse;
-
-    setStatus("Uploading...");
-    const putRes = await fetch(init.signedUrl, {
-      method: "PUT",
-      headers: init.requiredHeaders,
-      body: f,
-    });
-    if (!putRes.ok) throw new Error(`upload failed: ${putRes.status}`);
-
-    setStatus("Finalizing...");
-    const finRes = await fetch("/api/docs/finalize", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        slug: init.slug,
-        type,
-        filename: f.name,
-        title: t || f.name,
-      }),
-    });
-    if (!finRes.ok) throw new Error(`finalize failed: ${await finRes.text()}`);
-    const fin = (await finRes.json()) as { slug: string };
-    return fin.slug;
+  async function copyLink() {
+    try {
+      await navigator.clipboard.writeText(`${window.location.origin}/s/${resultSlug}`);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1600);
+    } catch {
+      setError("Your browser blocked copying. Select the link and copy it instead.");
+    }
   }
 
-  async function uploadAnon(f: File, t: string, pub: boolean) {
-    setStatus("Uploading...");
-    const form = new FormData();
-    form.set("file", f);
-    form.set("title", t || f.name);
-    form.set("sessionId", getAnonSessionId());
-    form.set("makePublic", pub ? "true" : "false");
-    const res = await fetch("/api/anon/upload", { method: "POST", body: form });
-    if (!res.ok) {
-      const body = await res.text();
-      throw new Error(body || `upload failed: ${res.status}`);
-    }
-    const data = (await res.json()) as { slug: string; isPublic: boolean };
-    setStatus(null);
-    setResult(data);
+  if (resultSlug) {
+    const path = `/s/${resultSlug}`;
+    return (
+      <div className="rounded-panel border border-line p-5">
+        <h2 className="text-[16px] font-semibold text-ink">Your page is live</h2>
+        <p className="mt-1 text-[14px] text-ink-2">
+          Anyone with this link can open it, for at least {ANON_DOC_TTL_DAYS} days.
+        </p>
+        <a href={path} target="_blank" rel="noreferrer" className="text-link mt-4 block break-all text-[16px] font-medium">
+          {typeof window === "undefined" ? path : `${window.location.host}${path}`}
+        </a>
+        <div className="mt-4 flex flex-wrap gap-2">
+          <Button variant="primary" onClick={() => void copyLink()}>
+            {copied ? <Check size={15} aria-hidden="true" /> : <Link2 size={15} aria-hidden="true" />}
+            {copied ? "Copied" : "Copy link"}
+          </Button>
+          <a href={path} target="_blank" rel="noreferrer" className={buttonClass()}>
+            <ExternalLink size={15} aria-hidden="true" />
+            Open
+          </a>
+          <Button
+            onClick={() => {
+              setTitle("");
+              pickFile(null);
+            }}
+          >
+            Upload another
+          </Button>
+        </div>
+      </div>
+    );
   }
 
   return (
-    <form onSubmit={onSubmit} className="space-y-8">
-      <div className="relative">
-        <div className="smallcaps absolute -top-3 left-3 bg-[var(--paper)] px-2">
-          File
+    <form onSubmit={onSubmit} className="space-y-5">
+      <input
+        ref={inputRef}
+        type="file"
+        accept={ACCEPTED_FILE_TYPES}
+        aria-label="Choose a file to upload"
+        onChange={(e) => pickFile(e.target.files?.[0])}
+        className="sr-only"
+      />
+
+      {file ? (
+        <div className="flex items-center gap-3 rounded-panel border border-line px-4 py-3">
+          {fileType && <DocTypeIcon type={fileType} size={22} />}
+          <div className="min-w-0 flex-1">
+            <div className="truncate text-[14px] font-medium text-ink" title={file.name}>
+              {file.name}
+            </div>
+            <div className="text-[13px] text-ink-3">{formatBytes(file.size)}</div>
+          </div>
+          <Button
+            variant="ghost"
+            size="sm"
+            icon
+            aria-label="Remove file"
+            title="Remove file"
+            disabled={Boolean(step)}
+            onClick={() => pickFile(null)}
+          >
+            <X size={16} aria-hidden="true" />
+          </Button>
         </div>
+      ) : (
         <div
-          className="drop-zone relative flex min-h-[180px] flex-col items-center justify-center gap-3 p-8 text-center"
-          data-drag={dragging}
+          className={`flex min-h-[220px] cursor-pointer flex-col items-center justify-center rounded-panel border border-dashed px-6 py-10 text-center transition-colors ${
+            dragging ? "border-link bg-link-tint" : "border-line-strong hover:bg-canvas"
+          }`}
+          onClick={() => inputRef.current?.click()}
           onDragOver={(e) => {
             e.preventDefault();
             setDragging(true);
@@ -178,158 +163,46 @@ export function UploadForm({ loggedIn }: { loggedIn: boolean }) {
           onDrop={(e) => {
             e.preventDefault();
             setDragging(false);
-            const dropped = e.dataTransfer.files?.[0];
-            if (dropped) pickFile(dropped);
-          }}
-          onClick={() => inputRef.current?.click()}
-          role="button"
-          tabIndex={0}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" || e.key === " ") {
-              e.preventDefault();
-              inputRef.current?.click();
-            }
+            pickFile(e.dataTransfer.files?.[0]);
           }}
         >
-          <input
-            ref={inputRef}
-            type="file"
-            accept=".html,.htm,.md,.markdown,.zip"
-            onChange={(e) => pickFile(e.target.files?.[0] ?? null)}
-            className="sr-only"
-          />
-          {file ? (
-            <div className="flex flex-col items-center gap-1">
-              <div className="font-display text-2xl text-[var(--ink)]">{file.name}</div>
-              <div className="font-mono text-[12px] text-[var(--ink-3)]">
-                {prettyBytes(file.size)}
-                {detectedType && (
-                  <>
-                    <span className="mx-2 text-[var(--ink-4)]">·</span>
-                    <span className="uppercase">{detectedType}</span>
-                  </>
-                )}
-              </div>
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  pickFile(null);
-                }}
-                className="mt-2 smallcaps hover:text-[var(--accent)]"
-              >
-                × Replace file
-              </button>
-            </div>
-          ) : (
-            <>
-              <div className="font-display text-xl text-[var(--ink)]">
-                Drop a file here
-              </div>
-              <div className="font-mono text-[12px] text-[var(--ink-3)]">
-                or click to browse — .html · .md · .zip
-              </div>
-            </>
-          )}
+          <FileUp size={24} strokeWidth={1.5} className="text-ink-3" aria-hidden="true" />
+          <p className="mt-3 text-[15px] font-medium text-ink">Drop a file here</p>
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              inputRef.current?.click();
+            }}
+            className="text-link mt-0.5 rounded-control text-[14px] font-medium"
+          >
+            or choose one
+          </button>
+          <p className="mt-3 text-[13px] text-ink-3">HTML, Markdown or ZIP, up to {maxMb} MB</p>
         </div>
-      </div>
+      )}
 
       <div>
-        <label className="smallcaps block" htmlFor="title">
-          Title — optional
+        <label htmlFor="title" className="mb-1.5 block text-[13px] font-medium text-ink">
+          Title <span className="font-normal text-ink-3">(optional)</span>
         </label>
         <input
           id="title"
           type="text"
           value={title}
+          maxLength={200}
           onChange={(e) => setTitle(e.target.value)}
-          placeholder="Defaults to the filename"
-          className="input-field mt-1"
+          placeholder={file?.name ?? "Uses the file name if you leave it blank"}
+          className="field"
         />
       </div>
 
-      {!loggedIn && (
-        <div className="flex items-center justify-between gap-4 border-t border-[var(--ink)]/20 pt-5">
-          <div>
-            <div className="smallcaps">Visibility</div>
-            <div className="mt-1 font-display text-lg text-[var(--ink)]">
-              {makePublic ? "Public" : "Private"}
-            </div>
-            <div className="mt-0.5 text-[12px] text-[var(--ink-3)]">
-              {makePublic
-                ? "Anyone with the link can view."
-                : "Link returned to you only."}
-            </div>
-          </div>
-          <button
-            type="button"
-            role="switch"
-            aria-checked={makePublic}
-            onClick={() => setMakePublic((v) => !v)}
-            className="pub-switch"
-            data-on={makePublic}
-          />
-        </div>
-      )}
+      {error && <Banner>{error}</Banner>}
 
-      <div className="flex flex-wrap items-center gap-4 border-t border-[var(--ink)]/20 pt-5">
-        <button
-          type="submit"
-          disabled={Boolean(status) || !file}
-          className="btn-accent"
-        >
-          <span>{status ?? (loggedIn ? "Upload & Edit" : "Upload")}</span>
-          {!status && <span>→</span>}
-        </button>
-        <span className="font-mono text-[11px] text-[var(--ink-3)]">
-          max {(maxBytes / 1024 / 1024).toFixed(0)} MB
-        </span>
-      </div>
-
-      {error && (
-        <div className="border border-[var(--red)] bg-[var(--paper)] px-4 py-3 text-[13px] text-[var(--red)]">
-          <span className="smallcaps mr-2" style={{ color: "var(--red)" }}>
-            Error
-          </span>
-          {error}
-        </div>
-      )}
-
-      {result && !loggedIn && (
-        <div className="relative border border-[var(--ink)] bg-[var(--paper-2)] p-5">
-          <div className="smallcaps mb-2 flex items-center gap-2 text-[var(--accent)]">
-            <span>● Uploaded</span>
-          </div>
-          {result.isPublic ? (
-            <div>
-              <div className="font-display text-xl text-[var(--ink)]">
-                Your link is live.
-              </div>
-              <a
-                href={`${origin}/s/${result.slug}`}
-                className="mt-2 block break-all font-mono text-[13px] text-[var(--accent)] underline underline-offset-4"
-              >
-                {origin}/s/{result.slug}
-              </a>
-              <Link href="/upload" className="mt-4 inline-block smallcaps hover:text-[var(--accent)]">
-                ↻ Upload another
-              </Link>
-            </div>
-          ) : (
-            <div>
-              <div className="font-display text-xl text-[var(--ink)]">
-                Stored privately.
-              </div>
-              <div className="mt-2 font-mono text-[12px] text-[var(--ink-3)]">
-                Slug: <span className="text-[var(--ink)]">{result.slug}</span>
-              </div>
-              <div className="mt-2 text-[13px] text-[var(--ink-2)]">
-                Sign in to edit or publish.
-              </div>
-            </div>
-          )}
-        </div>
-      )}
+      <Button type="submit" variant="primary" disabled={Boolean(step) || !file}>
+        {step && <Loader2 size={15} className="animate-spin" aria-hidden="true" />}
+        {step ?? "Upload"}
+      </Button>
     </form>
   );
 }

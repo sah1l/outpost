@@ -1,5 +1,35 @@
 export type DocType = "html" | "md" | "zip";
 
+// What someone else can be granted on a doc or workspace.
+export type ShareRole = "viewer" | "editor";
+export type DocRole = "owner" | ShareRole;
+export type WorkspaceRole = "owner" | ShareRole;
+
+export interface DocShare {
+  // Always normalized (see normalizeEmail) and matched only against verified emails.
+  email: string;
+  role: ShareRole;
+  addedBy: string;
+  addedAt: number;
+}
+
+export interface WorkspaceRecord {
+  id: string;
+  name: string;
+  ownerId: string;
+  ownerEmail: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface WorkspaceMember {
+  workspaceId: string;
+  email: string;
+  role: ShareRole;
+  addedBy: string;
+  addedAt: number;
+}
+
 export interface DocRecord {
   slug: string;
   ownerId: string | null;
@@ -13,11 +43,20 @@ export interface DocRecord {
   createdAt: number;
   updatedAt: number;
   expiresAt: number | null;
+  // Sharing. All optional because docs created before sharing don't have them.
+  workspaceId?: string | null;
+  shares?: DocShare[];
+  // Same emails as `shares`, kept alongside so "shared with me" can be queried.
+  sharedWithEmails?: string[];
+  // Set whenever the file changes, unlike updatedAt which also moves on renames.
+  // Lets the editor detect that someone else saved first.
+  contentUpdatedAt?: number;
 }
 
 export interface UserRecord {
   uid: string;
   email: string;
+  emailVerified?: boolean;
   displayName: string | null;
   photoURL: string | null;
   storageUsedBytes: number;

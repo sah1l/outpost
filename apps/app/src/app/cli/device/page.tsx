@@ -1,10 +1,11 @@
-import Link from "next/link";
+import type { Metadata } from "next";
 import { redirect } from "next/navigation";
+import { Wordmark } from "@/components/brand/logo";
 import { getSessionUser } from "@/lib/auth";
-import { SiteHeader, PageShell } from "@/components/chrome/site-header";
 import { DeviceApprovalForm } from "./approval-form";
 
 export const dynamic = "force-dynamic";
+export const metadata: Metadata = { title: "Connect the CLI" };
 
 export default async function CliDevicePage({
   searchParams,
@@ -19,28 +20,27 @@ export default async function CliDevicePage({
   }
 
   return (
-    <>
-      <SiteHeader
-        actions={
-          <Link href="/dashboard" className="btn-ghost">
-            Dashboard
-          </Link>
-        }
-      />
-      <PageShell width="default">
-        <div className="mx-auto max-w-lg">
-          <div className="smallcaps mb-3">CLI device authorization</div>
-          <h1 className="font-display text-5xl font-light leading-[0.95] tracking-tight text-[var(--ink)]">
-            Connect your CLI.
-          </h1>
-          <p className="mt-5 text-[15px] leading-relaxed text-[var(--ink-2)]">
-            Enter the code shown in your terminal to grant the CLI access to your
-            account. You can revoke this token at any time from your dashboard.
-          </p>
-          <div className="rule-dashed my-8" />
-          <DeviceApprovalForm initialCode={code ?? ""} email={user.email} />
+    <main className="flex min-h-dvh items-center justify-center bg-canvas p-4">
+      <div className="w-full max-w-sm">
+        <div className="flex justify-center">
+          <Wordmark size="lg" />
         </div>
-      </PageShell>
-    </>
+        <div className="mt-6 rounded-panel border border-line bg-surface p-6">
+          <h1 className="text-[18px] font-semibold tracking-[-0.01em] text-ink">Connect the CLI</h1>
+          <p className="mt-1 text-[13px] leading-relaxed text-ink-2">
+            Check that this code matches the one in your terminal. The CLI can then upload and change
+            docs as {user.email}.
+          </p>
+          <div className="mt-5">
+            <DeviceApprovalForm initialCode={code ?? ""} />
+          </div>
+        </div>
+        <p className="mt-4 text-center text-[13px] leading-relaxed text-ink-2">
+          Access lasts 90 days. Run{" "}
+          <code className="rounded bg-hover px-1.5 py-0.5 font-mono text-[12px]">outpost logout</code> to
+          remove it from your computer.
+        </p>
+      </div>
+    </main>
   );
 }

@@ -1,76 +1,63 @@
+import type { Metadata } from "next";
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
+import { canEditDoc } from "@offsprint/shared";
+import { AppShell } from "@/components/app/app-shell";
+import { buttonClass } from "@/components/ui/button";
+import { EmptyState, PageBody, PageHeader } from "@/components/ui/feedback";
+import { docRoleFor, viewerFromSession } from "@/lib/access";
 import { getSessionUser } from "@/lib/auth";
 import { getDoc } from "@/lib/docs";
-import { SiteHeader, PageShell, Breadcrumb } from "@/components/chrome/site-header";
 import { EditorShell } from "./editor-shell";
 
 export const dynamic = "force-dynamic";
+export const metadata: Metadata = { title: "Editor" };
 
 export default async function EditorPage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
   const user = await getSessionUser();
-  if (!user) notFound();
+  if (!user) redirect(`/login?next=${encodeURIComponent(`/editor/${slug}`)}`);
 
   const doc = await getDoc(slug);
-  if (!doc || doc.ownerId !== user.uid) notFound();
+  if (!doc) notFound();
+  const role = await docRoleFor(doc, viewerFromSession(user));
+  if (!role) notFound();
+  if (!canEditDoc(role)) redirect(`/s/${slug}`);
 
   if (doc.type === "zip") {
     return (
-      <>
-        <SiteHeader
-          user={user}
-          breadcrumb={
-            <Breadcrumb
-              items={[
-                { label: "dashboard", href: "/dashboard" },
-                { label: slug },
-              ]}
-            />
-          }
-          actions={
-            <Link href="/dashboard" className="btn-ghost">
-              Back
-            </Link>
-          }
-        />
-        <PageShell width="narrow">
-          <div className="smallcaps mb-3">Status · unavailable</div>
-          <h1 className="font-display text-4xl text-[var(--ink)]">
-            Not editable.
-          </h1>
-          <p className="mt-4 text-[14px] leading-relaxed text-[var(--ink-2)]">
-            ZIP uploads are served as a site — they can&apos;t be edited inline.
-            Re-upload the changed files if you need to update them.
-          </p>
-          <Link href="/dashboard" className="btn-ghost mt-8">
-            ← Back to dashboard
-          </Link>
-        </PageShell>
-      </>
+      <AppShell user={user}>
+        <PageBody>
+          <PageHeader title={doc.title} />
+          <EmptyState
+            title="ZIP sites can't be edited here"
+            actions={
+              <>
+                <Link href={`/s/${doc.slug}`} className={buttonClass({ variant: "primary" })}>
+                  Open the site
+                </Link>
+                <Link href="/dashboard" className={buttonClass()}>
+                  Back to your docs
+                </Link>
+              </>
+            }
+          >
+            To change a site, edit the files on your computer and upload a new ZIP.
+          </EmptyState>
+        </PageBody>
+      </AppShell>
     );
   }
 
   return (
-    <div className="flex h-screen min-h-0 flex-col">
-      <SiteHeader
-        user={user}
-        breadcrumb={
-          <Breadcrumb
-            items={[
-              { label: "dashboard", href: "/dashboard" },
-              { label: doc.slug },
-            ]}
-          />
-        }
-      />
-      <EditorShell
-        mode="edit"
-        slug={doc.slug}
-        docType={doc.type}
-        title={doc.title}
-        initialIsPublic={doc.isPublic}
-      />
-    </div>
+    <EditorShell
+      mode="edit"
+      slug={doc.slug}
+      docType={doc.type}
+      title={doc.title}
+      initialIsPublic={doc.isPublic}
+      initialShareCount={role === "owner" ? (doc.shares?.length ?? 0) : 0}
+      canManage={role === "owner"}
+    />
   );
 }
